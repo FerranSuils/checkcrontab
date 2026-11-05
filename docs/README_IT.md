@@ -14,24 +14,38 @@ Uno script Python per controllare la sintassi dei file crontab. Supporto multipi
 ### Requisiti
 
 - **Python 3.7 o superiore**
-- **Linux/macOS**: Sistema Linux/Unix con systemctl (per controlli daemon), accesso in lettura a `/etc/crontab`
-- **Windows**: Nessun requisito aggiuntivo (solo validazione basata su file)
+- **Linux**: `systemctl` per i servizi e il demone cron, lettura di `/etc/crontab`
+- **macOS**: `launchctl` per launchd e cron (`com.vix.cron`), lettura di `/etc/crontab`
+- **Windows**: `sc` e `net` per Utilità di pianificazione e gli account locali, `icacls` per le ACL
 
 ### Supporto piattaforme
 
-**Linux/macOS (Supporto completo):**
-- Validazione crontab di sistema (`/etc/crontab`)
-- Validazione crontab utente (via `crontab -l -u username`)
-- Validazione esistenza utente
-- Controlli daemon/servizi via systemctl
-- Tutte le funzionalità di sintassi crontab
+**Linux (Supporto completo):**
+- ✅ Validazione crontab di sistema (`/etc/crontab`)
+- ✅ Validazione crontab utente (via `crontab -l -u username`)
+- ✅ Validazione esistenza utente
+- ✅ Controlli daemon/servizi via systemctl
+- ✅ Tutte le funzionalità di sintassi crontab
+- ✅ Validazione dei permessi
+- ✅ Stato del demone cron
 
-**Windows (Supporto limitato):**
-- Validazione sintassi crontab basata su file
-- Nessun controllo esistenza utente
-- Nessun accesso al crontab di sistema
-- Nessun controllo daemon/servizi
-- Tutte le funzionalità di sintassi crontab supportate
+**macOS (Supporto completo):**
+- ✅ Validazione crontab di sistema (`/etc/crontab`)
+- ✅ Validazione crontab utente (via `crontab -l -u username`)
+- ✅ Validazione esistenza utente
+- ✅ Controlli daemon/servizi via launchctl
+- ✅ Tutte le funzionalità di sintassi crontab
+- ✅ Validazione dei permessi
+- ✅ Stato del demone cron (`com.vix.cron` / `com.apple.cron`)
+
+**Windows (Supporto completo):**
+- ✅ Validazione sintassi crontab basata su file
+- ✅ Controllo esistenza utente (via `net user`)
+- ✅ Accesso al crontab di sistema (`%ProgramData%\crontab`, `C:\etc\crontab`, Cygwin, MSYS2 o `CRONTAB_SYSTEM_PATH`)
+- ✅ Controlli daemon/servizi via `sc`
+- ✅ Tutte le funzionalità di sintassi crontab supportate
+- ✅ Validazione dei permessi via `icacls`
+- ✅ Stato di Utilità di pianificazione (`Schedule`) o di un servizio cron installato
 
 ### Installazione
 

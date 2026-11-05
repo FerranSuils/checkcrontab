@@ -1,5 +1,11 @@
 # CHANGELOG
 
+0.0.13 (2026-11-05)
+========
+- macOS: service checks and cron status via launchctl
+- Windows: user checks via net user, system crontab paths, service checks via sc, ACL checks via icacls
+- Run scheduler checks and system-crontab permission checks on Linux, macOS, and Windows
+
 0.0.12 (2025-10-17)
 ========
 - Add check owner and file permissions

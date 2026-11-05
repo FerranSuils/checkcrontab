@@ -6,6 +6,7 @@ Tests for checker module helper functions
 
 import importlib
 import importlib.util
+import os
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -186,7 +187,8 @@ def test_check_owner_and_permissions_directory(tmp_path):
 @patch("checkcrontab.checker.os.path.exists")
 @patch("checkcrontab.checker.os.path.lexists")
 @patch("checkcrontab.checker.os.path.islink")
-def test_check_owner_and_permissions_wrong_perms(mock_islink, mock_lexists, mock_exists, mock_stat, tmp_path):
+@patch("checkcrontab.checker.platform.system", return_value="Linux")
+def test_check_owner_and_permissions_wrong_perms(mock_platform, mock_islink, mock_lexists, mock_exists, mock_stat, tmp_path):
     """Test check_owner_and_permissions with wrong permissions"""
     mock_lexists.return_value = True
     mock_exists.return_value = True
@@ -209,7 +211,8 @@ def test_check_owner_and_permissions_wrong_perms(mock_islink, mock_lexists, mock
 @patch("checkcrontab.checker.os.path.exists")
 @patch("checkcrontab.checker.os.path.lexists")
 @patch("checkcrontab.checker.os.path.islink")
-def test_check_owner_and_permissions_wrong_owner(mock_islink, mock_lexists, mock_exists, mock_stat, tmp_path):
+@patch("checkcrontab.checker.platform.system", return_value="Linux")
+def test_check_owner_and_permissions_wrong_owner(mock_platform, mock_islink, mock_lexists, mock_exists, mock_stat, tmp_path):
     """Test check_owner_and_permissions with wrong owner"""
     mock_lexists.return_value = True
     mock_exists.return_value = True
@@ -233,7 +236,8 @@ def test_check_owner_and_permissions_wrong_owner(mock_islink, mock_lexists, mock
 @patch("checkcrontab.checker.os.path.lexists")
 @patch("checkcrontab.checker.os.path.islink")
 @patch("checkcrontab.checker.os.path.realpath")
-def test_check_owner_and_permissions_symlink_wrong_owner(mock_realpath, mock_islink, mock_lexists, mock_exists, mock_lstat, tmp_path):
+@patch("checkcrontab.checker.platform.system", return_value="Linux")
+def test_check_owner_and_permissions_symlink_wrong_owner(mock_platform, mock_realpath, mock_islink, mock_lexists, mock_exists, mock_lstat, tmp_path):
     """Test check_owner_and_permissions with symlink having wrong owner"""
     mock_lexists.return_value = True
     mock_exists.return_value = True
@@ -395,13 +399,25 @@ def test_check_user_exists_generic_exception(mock_run):
 # ============================================================================
 
 
-@patch("checkcrontab.checker.platform.system")
-def test_check_user_windows(mock_platform):
-    """Test check_user on Windows (should skip existence check)"""
-    mock_platform.return_value = "Windows"
+@patch("checkcrontab.checker.subprocess.run")
+@patch("checkcrontab.checker.platform.system", return_value="Windows")
+def test_check_user_windows(mock_platform, mock_run):
+    """Test check_user on Windows uses net user"""
+    mock_run.return_value = MagicMock(returncode=0, stdout="The command completed successfully", stderr="")
     errors, warnings = checker.check_user("testuser")
     assert errors == []
     assert warnings == []
+    assert mock_run.call_args[0][0][:3] == ["net", "user", "testuser"]
+
+
+@patch("checkcrontab.checker.subprocess.run")
+@patch("checkcrontab.checker.platform.system", return_value="Windows")
+def test_check_user_windows_missing(mock_platform, mock_run):
+    """Test check_user on Windows warns when the account does not exist"""
+    mock_run.return_value = MagicMock(returncode=2, stdout="The user name could not be found.", stderr="")
+    errors, warnings = checker.check_user("testuser")
+    assert errors == []
+    assert any("does not exist" in warning for warning in warnings)
 
 
 # ============================================================================
@@ -469,7 +485,8 @@ def test_check_line_special_legacy():
 @patch("checkcrontab.checker.os.path.islink")
 @patch("checkcrontab.checker.os.path.realpath")
 @patch("checkcrontab.checker.os.stat")
-def test_check_owner_and_permissions_symlink_correct_owner(mock_stat, mock_realpath, mock_islink, mock_lexists, mock_exists, mock_lstat, tmp_path):
+@patch("checkcrontab.checker.platform.system", return_value="Linux")
+def test_check_owner_and_permissions_symlink_correct_owner(mock_platform, mock_stat, mock_realpath, mock_islink, mock_lexists, mock_exists, mock_lstat, tmp_path):
     """Test check_owner_and_permissions with symlink having correct owner"""
     mock_lexists.return_value = True
     mock_exists.return_value = True
@@ -501,7 +518,8 @@ def test_check_owner_and_permissions_symlink_correct_owner(mock_stat, mock_realp
 @patch("checkcrontab.checker.os.path.exists")
 @patch("checkcrontab.checker.os.path.lexists")
 @patch("checkcrontab.checker.os.path.islink")
-def test_check_owner_and_permissions_symlink_lstat_exception(mock_islink, mock_lexists, mock_exists, mock_lstat, tmp_path):
+@patch("checkcrontab.checker.platform.system", return_value="Linux")
+def test_check_owner_and_permissions_symlink_lstat_exception(mock_platform, mock_islink, mock_lexists, mock_exists, mock_lstat, tmp_path):
     """Test check_owner_and_permissions with lstat raising exception"""
     mock_lexists.return_value = True
     mock_islink.return_value = True
@@ -518,7 +536,8 @@ def test_check_owner_and_permissions_symlink_lstat_exception(mock_islink, mock_l
 @patch("checkcrontab.checker.os.path.exists")
 @patch("checkcrontab.checker.os.path.lexists")
 @patch("checkcrontab.checker.os.path.islink")
-def test_check_owner_and_permissions_stat_exception(mock_islink, mock_lexists, mock_exists, mock_stat, tmp_path):
+@patch("checkcrontab.checker.platform.system", return_value="Linux")
+def test_check_owner_and_permissions_stat_exception(mock_platform, mock_islink, mock_lexists, mock_exists, mock_stat, tmp_path):
     """Test check_owner_and_permissions with stat raising exception"""
     mock_lexists.return_value = True
     mock_exists.return_value = True
@@ -582,3 +601,149 @@ def test_check_owner_permissions_with_special_file_types():
                         mock_check_kind.return_value = file_type
                         errors = checker.check_owner_and_permissions("/dev/test", owner_uid=0)
                         assert any("not a regular_file" in e for e in errors)
+
+
+def _completed(returncode=0, stdout="", stderr=""):
+    return MagicMock(returncode=returncode, stdout=stdout, stderr=stderr)
+
+
+@patch("checkcrontab.checker.subprocess.run")
+@patch("checkcrontab.checker.platform.system", return_value="Darwin")
+def test_check_daemon_darwin_running(mock_platform, mock_run):
+    mock_run.return_value = _completed(stdout="123 0 com.vix.cron\n- 0 com.apple.foo\n")
+    assert checker.check_daemon() == []
+
+
+@patch("checkcrontab.checker.subprocess.run")
+@patch("checkcrontab.checker.platform.system", return_value="Darwin")
+def test_check_daemon_darwin_not_running(mock_platform, mock_run):
+    mock_run.return_value = _completed(stdout="- 0 com.vix.cron\n")
+    assert checker.check_daemon() == []
+
+
+@patch("checkcrontab.checker.subprocess.run")
+@patch("checkcrontab.checker.platform.system", return_value="Darwin")
+def test_check_daemon_darwin_launchctl_missing(mock_platform, mock_run):
+    mock_run.side_effect = FileNotFoundError()
+    errors = checker.check_daemon()
+    assert errors == ["Cron daemon: launchctl not found"]
+
+
+@patch("checkcrontab.checker.subprocess.run")
+@patch("checkcrontab.checker.platform.system", return_value="Windows")
+def test_check_daemon_windows_schedule_running(mock_platform, mock_run):
+    mock_run.return_value = _completed(stdout="STATE              : 4  RUNNING\n")
+    assert checker.check_daemon() == []
+    assert mock_run.call_args[0][0][:3] == ["sc", "query", "Schedule"]
+
+
+@patch("checkcrontab.checker.subprocess.run")
+@patch("checkcrontab.checker.platform.system", return_value="Windows")
+def test_check_daemon_windows_sc_missing(mock_platform, mock_run):
+    mock_run.side_effect = FileNotFoundError()
+    assert checker.check_daemon() == ["Cron daemon: sc not found"]
+
+
+@patch("checkcrontab.checker.subprocess.run")
+@patch("checkcrontab.checker.platform.system", return_value="Linux")
+def test_check_services_linux(mock_platform, mock_run):
+    mock_run.return_value = _completed(stdout="cron.service loaded active running\n")
+    assert checker.check_services() == []
+
+
+@patch("checkcrontab.checker.subprocess.run")
+@patch("checkcrontab.checker.platform.system", return_value="Darwin")
+def test_check_services_darwin_missing(mock_platform, mock_run):
+    mock_run.side_effect = FileNotFoundError()
+    assert checker.check_services() == ["Daemon/service: launchctl not found"]
+
+
+@patch("checkcrontab.checker.subprocess.run")
+@patch("checkcrontab.checker.platform.system", return_value="Windows")
+def test_check_services_windows(mock_platform, mock_run):
+    mock_run.return_value = _completed(stdout="SERVICE_NAME: Schedule\n")
+    assert checker.check_services() == []
+    assert mock_run.call_args[0][0][0] == "sc"
+
+
+@patch("checkcrontab.checker.subprocess.run")
+@patch("checkcrontab.checker.platform.system", return_value="Windows")
+def test_windows_permissions_world_writable(mock_platform, mock_run, tmp_path):
+    crontab = tmp_path / "crontab"
+    crontab.write_text("0 1 * * * root echo ok\n")
+
+    def side_effect(cmd, **kwargs):
+        if cmd[0] == "icacls":
+            return _completed(stdout=f"{crontab} Everyone:(F)\nSuccessfully processed 1 files\n")
+        return _completed(stdout="NT AUTHORITY\\SYSTEM\n")
+
+    mock_run.side_effect = side_effect
+    errors = checker.check_owner_and_permissions(str(crontab))
+    assert any("wrong permissions" in error for error in errors)
+
+
+@patch("checkcrontab.checker.subprocess.run")
+@patch("checkcrontab.checker.platform.system", return_value="Windows")
+def test_windows_permissions_ok(mock_platform, mock_run, tmp_path):
+    crontab = tmp_path / "crontab"
+    crontab.write_text("0 1 * * * root echo ok\n")
+
+    def side_effect(cmd, **kwargs):
+        if cmd[0] == "icacls":
+            return _completed(stdout=f"{crontab} BUILTIN\\Administrators:(F)\n{crontab} BUILTIN\\Users:(RX)\nSuccessfully processed 1 files\n")
+        return _completed(stdout="NT AUTHORITY\\SYSTEM\n")
+
+    mock_run.side_effect = side_effect
+    assert checker.check_owner_and_permissions(str(crontab)) == []
+
+
+@patch("checkcrontab.checker.subprocess.run")
+@patch("checkcrontab.checker.platform.system", return_value="Windows")
+def test_windows_permissions_wrong_owner(mock_platform, mock_run, tmp_path):
+    crontab = tmp_path / "crontab"
+    crontab.write_text("0 1 * * * root echo ok\n")
+
+    def side_effect(cmd, **kwargs):
+        if cmd[0] == "icacls":
+            return _completed(stdout=f"{crontab} BUILTIN\\Users:(RX)\nSuccessfully processed 1 files\n")
+        return _completed(stdout="DESKTOP\\bob\n")
+
+    mock_run.side_effect = side_effect
+    errors = checker.check_owner_and_permissions(str(crontab))
+    assert any("wrong owner" in error for error in errors)
+
+
+def test_system_crontab_paths_windows(monkeypatch):
+    monkeypatch.setattr(checker.platform, "system", lambda: "Windows")
+    monkeypatch.setenv("PROGRAMDATA", r"C:\ProgramData")
+    monkeypatch.setenv("SYSTEMROOT", r"C:\Windows")
+    monkeypatch.setenv("CRONTAB_SYSTEM_PATH", r"D:\crontab")
+    paths = checker.system_crontab_paths()
+    assert paths[0] == r"D:\crontab"
+    assert os.path.join(r"C:\ProgramData", "crontab") in paths
+    assert r"C:\cygwin64\etc\crontab" in paths
+
+
+def test_is_system_crontab_path_posix():
+    assert checker.is_system_crontab_path("/etc/crontab") is True
+    assert checker.is_system_crontab_path("/etc/cron.d/daily") is True
+    assert checker.is_system_crontab_path("/tmp/user_cron") is False
+
+
+def test_find_system_crontab_override(tmp_path, monkeypatch):
+    target = tmp_path / "crontab"
+    target.write_text("0 1 * * * root echo ok\n")
+    monkeypatch.setenv("CRONTAB_SYSTEM_PATH", str(target))
+    assert checker.find_system_crontab() == str(target)
+
+
+def test_user_crontab_paths_cover_macos_and_windows(monkeypatch):
+    monkeypatch.setattr(checker.platform, "system", lambda: "Darwin")
+    darwin_paths = checker.user_crontab_paths("ada")
+    assert "/usr/lib/cron/tabs/ada" in darwin_paths
+    monkeypatch.setattr(checker.platform, "system", lambda: "Windows")
+    monkeypatch.setenv("PROGRAMDATA", r"C:\ProgramData")
+    monkeypatch.setenv("LOCALAPPDATA", r"C:\Users\ada\AppData\Local")
+    windows_paths = checker.user_crontab_paths("ada")
+    assert os.path.join(r"C:\ProgramData", "cron", "crontabs", "ada") in windows_paths
+    assert os.path.join(r"C:\Users\ada\AppData\Local", "cron", "ada") in windows_paths

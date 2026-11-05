@@ -14,9 +14,9 @@ Um script em Python para validar a sintaxe de ficheiros crontab. Suporte multipl
 ### Requisitos
 
 * **Python 3.7 ou superior**
-* **Linux**: Sistema Linux com systemctl (para verificações de daemon) e acesso de leitura a `/etc/crontab`
-* **macOS**: Sistema Unix com acesso de leitura a `/etc/crontab` (systemctl não disponível)
-* **Windows**: Sem requisitos adicionais (validação baseada em ficheiro apenas)
+* **Linux**: `systemctl` para serviços e para o daemon cron, leitura de `/etc/crontab`
+* **macOS**: `launchctl` para o launchd e para o cron (`com.vix.cron`), leitura de `/etc/crontab`
+* **Windows**: `sc` e `net` para o Agendador de Tarefas e contas locais, `icacls` para ACLs
 
 ### Suporte de Plataformas
 
@@ -30,25 +30,25 @@ Um script em Python para validar a sintaxe de ficheiros crontab. Suporte multipl
 * ✅ Validação de permissões de ficheiros
 * ✅ Verificação do estado do daemon do cron
 
-**macOS (Suporte Parcial):**
+**macOS (Suporte Completo):**
 
 * ✅ Validação do crontab do sistema (`/etc/crontab`)
 * ✅ Validação do crontab do utilizador (via `crontab -l -u username`)
 * ✅ Validação da existência de utilizadores
-* ❌ Verificação de serviços/daemons (systemctl não disponível)
+* ✅ Verificação de serviços/daemons via launchctl
 * ✅ Todas as funcionalidades de sintaxe do crontab
 * ✅ Validação de permissões de ficheiros
-* ❌ Verificação do estado do daemon do cron
+* ✅ Verificação do estado do daemon do cron (`com.vix.cron` / `com.apple.cron`)
 
-**Windows (Suporte Limitado):**
+**Windows (Suporte Completo):**
 
 * ✅ Validação de sintaxe baseada em ficheiros
-* ❌ Validação de utilizadores (sem integração com gestão de utilizadores)
-* ❌ Acesso ao crontab do sistema (sem `/etc/crontab`)
-* ❌ Verificação de serviços/daemons (sem systemctl)
+* ✅ Validação de utilizadores (via `net user`)
+* ✅ Acesso ao crontab do sistema (`%ProgramData%\crontab`, `C:\etc\crontab`, Cygwin, MSYS2 ou `CRONTAB_SYSTEM_PATH`)
+* ✅ Verificação de serviços/daemons via `sc`
 * ✅ Todas as funcionalidades de sintaxe do crontab suportadas
-* ❌ Validação de permissões de ficheiros
-* ❌ Verificação do estado do daemon do cron
+* ✅ Validação de permissões via `icacls`
+* ✅ Verificação do estado do Agendador de Tarefas (`Schedule`) ou de um serviço cron instalado
 
 ### Instalação
 
@@ -90,8 +90,8 @@ checkcrontab --version
 **Comportamento específico da plataforma:**
 
 * **Linux**: Funcionalidade completa, incluindo verificações de daemon e de utilizadores.
-* **macOS**: Funcionalidade completa, exceto verificações de daemon (systemctl não disponível).
-* **Windows**: Apenas validação baseada em ficheiros, sem integração com o sistema.
+* **macOS**: Funcionalidade completa, incluindo launchd e o estado do cron.
+* **Windows**: Funcionalidade completa, incluindo o Gestor de Controlo de Serviços, utilizadores locais e ACLs.
 
 ### Saídas de Texto
 

@@ -10,7 +10,7 @@ import re
 import stat
 import subprocess
 import traceback
-from typing import List, Optional, Tuple
+from typing import List, Optional, Set, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +26,13 @@ USER_SPECIAL_MIN_FIELDS = 2
 SYSTEM_SPECIAL_MIN_FIELDS = 3
 WINDOWS_MAJOR_VERSION = 10
 WINDOWS_BUILD_VERSION = 10586
+MACOS_CRON_LABELS = ("com.vix.cron", "com.apple.cron")
+LAUNCHCTL_LIST_COLUMNS = 3
+WINDOWS_CRON_SERVICES = ("cron", "CronDaemon", "cygcron")
+WINDOWS_BUILTIN_USERS = {"system", "local service", "network service", "localsystem", "administrator", "administrators"}
+_ACL_INHERIT_TOKENS = {"I", "OI", "CI", "IO", "NP", "ID"}
+_ACL_WRITE_RIGHTS = {"F", "M", "W", "D", "WDAC", "DC", "WD", "WEA", "WA", "GW"}
+_WINDOWS_TRUSTED_OWNERS = {"system", "administrators", "administrator", "trustedinstaller", "localsystem"}
 
 # Regex patterns for time fields
 MINUTE_PATTERN = r"^(\*|([0-5]?[0-9])(-([0-5]?[0-9]))?(/([0-9]+))?(,([0-5]?[0-9])(-([0-5]?[0-9]))?(/([0-9]+))?)*|\*/([0-9]+))$"
@@ -63,24 +70,247 @@ def check_filename(file_path: str) -> str:
     return ""
 
 
-def check_daemon() -> List[str]:
-    """Check if cron daemon is running"""
-    errors: List[str] = []
+def _tool_errors(exc: Exception, tool: str, prefix: str) -> List[str]:
+    """Map a service-manager failure to a stable error string."""
+    if isinstance(exc, subprocess.TimeoutExpired):
+        return [f"{prefix}: timeout"]
+    if isinstance(exc, FileNotFoundError):
+        return [f"{prefix}: {tool} not found"]
+    return [f"{prefix}: {type(exc).__name__}"]
+
+
+def _run_command(cmd: List[str], timeout: int = 5) -> "subprocess.CompletedProcess[str]":
+    """Run a command and capture text output."""
+    return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, check=False)
+
+
+def system_crontab_paths() -> List[str]:
+    """Platform locations of the system crontab, including CRONTAB_SYSTEM_PATH."""
+    paths: List[str] = []
+    override = os.getenv("CRONTAB_SYSTEM_PATH")
+    if override:
+        paths.append(override)
+    system = platform.system().lower()
+    if system == "windows":
+        program_data = os.environ.get("PROGRAMDATA", r"C:\ProgramData")
+        system_root = os.environ.get("SYSTEMROOT", r"C:\Windows")
+        paths.extend(
+            [
+                os.path.join(program_data, "crontab"),
+                os.path.join(program_data, "cron", "crontab"),
+                os.path.join(system_root, "System32", "crontab"),
+                r"C:\etc\crontab",
+                r"C:\cygwin64\etc\crontab",
+                r"C:\cygwin\etc\crontab",
+                r"C:\msys64\etc\crontab",
+            ]
+        )
+    else:
+        paths.append("/etc/crontab")
+        if system == "darwin":
+            paths.append("/private/etc/crontab")
+    unique: List[str] = []
+    seen: Set[str] = set()
+    for path in paths:
+        key = os.path.normcase(os.path.normpath(path))
+        if key not in seen:
+            seen.add(key)
+            unique.append(path)
+    return unique
+
+
+def find_system_crontab() -> Optional[str]:
+    """Return the first system crontab that exists on this machine."""
+    for path in system_crontab_paths():
+        if os.path.isfile(path):
+            return path
+    return None
+
+
+def _system_cron_directories() -> List[str]:
+    """Directories whose files use the system crontab field layout."""
+    directories = ["/etc/cron.d", "/private/etc/cron.d"]
+    if platform.system().lower() == "windows":
+        program_data = os.environ.get("PROGRAMDATA", r"C:\ProgramData")
+        directories.extend(
+            [
+                os.path.join(program_data, "cron", "cron.d"),
+                os.path.join(program_data, "cron.d"),
+                r"C:\etc\cron.d",
+                r"C:\cygwin64\etc\cron.d",
+                r"C:\cygwin\etc\cron.d",
+                r"C:\msys64\etc\cron.d",
+            ]
+        )
+    return directories
+
+
+def is_system_crontab_path(file_path: str) -> bool:
+    """True when the path is a system crontab or a file under a system cron.d directory."""
+    if not file_path:
+        return False
+    if "system" in os.path.basename(file_path).lower():
+        return True
+    normalized = os.path.normcase(os.path.normpath(os.path.abspath(file_path)))
+    for candidate in system_crontab_paths():
+        candidate_norm = os.path.normcase(os.path.normpath(os.path.abspath(candidate)))
+        if normalized == candidate_norm:
+            return True
+    posix = file_path.replace("\\", "/")
+    if posix in ("/etc/crontab", "/private/etc/crontab"):
+        return True
+    parent = os.path.normcase(os.path.normpath(os.path.dirname(normalized)))
+    for directory in _system_cron_directories():
+        directory_norm = os.path.normcase(os.path.normpath(os.path.abspath(directory)))
+        if parent == directory_norm:
+            return True
+    return False
+
+
+def user_crontab_paths(username: str) -> List[str]:
+    """Filesystem locations checked before `crontab -l -u`."""
+    paths = [
+        f"/usr/lib/cron/tabs/{username}",
+        f"/var/spool/cron/crontabs/{username}",
+        f"/var/spool/cron/{username}",
+        f"/tmp/crontab.{username}",
+    ]
+    if platform.system().lower() != "windows":
+        return paths
+    program_data = os.environ.get("PROGRAMDATA", r"C:\ProgramData")
+    local_app = os.environ.get("LOCALAPPDATA", "")
+    paths.extend(
+        [
+            os.path.join(program_data, "cron", "crontabs", username),
+            os.path.join(program_data, "crontab", username),
+            os.path.join(r"C:\var\spool\cron\crontabs", username),
+            os.path.join(r"C:\var\spool\cron", username),
+            os.path.join(r"C:\cygwin64\var\spool\cron\crontabs", username),
+            os.path.join(r"C:\msys64\var\spool\cron\crontabs", username),
+        ]
+    )
+    if local_app:
+        paths.append(os.path.join(local_app, "cron", username))
+    return paths
+
+
+def _check_services_linux() -> List[str]:
     try:
-        result = subprocess.run(["systemctl", "is-active", "cron"], capture_output=True, text=True, timeout=5, check=False)
-        if result.returncode != 0 or result.stdout.strip() != "active":
-            logger.warning("Cron daemon: is not running")
+        result = _run_command(["systemctl", "list-units", "--type=service", "--no-pager", "--no-legend"])
+        if result.returncode != 0:
+            logger.warning("Daemon/service: systemctl could not list services")
         else:
+            logger.debug("Daemon/service: systemd is reachable")
+    except Exception as exc:
+        return _tool_errors(exc, "systemctl", "Daemon/service")
+    return []
+
+
+def _check_services_darwin() -> List[str]:
+    try:
+        result = _run_command(["launchctl", "list"])
+        if result.returncode != 0:
+            logger.warning("Daemon/service: launchctl could not query launchd")
+        else:
+            logger.debug("Daemon/service: launchd is reachable")
+    except Exception as exc:
+        return _tool_errors(exc, "launchctl", "Daemon/service")
+    return []
+
+
+def _check_services_windows() -> List[str]:
+    try:
+        result = _run_command(["sc", "query", "type=", "service", "state=", "all"])
+        if result.returncode != 0:
+            logger.warning("Daemon/service: sc could not query the service manager")
+        else:
+            logger.debug("Daemon/service: Service Control Manager is reachable")
+    except Exception as exc:
+        return _tool_errors(exc, "sc", "Daemon/service")
+    return []
+
+
+def check_services() -> List[str]:
+    """Check that the platform service manager answers (systemd, launchd, or SCM)."""
+    system = platform.system().lower()
+    if system == "windows":
+        return _check_services_windows()
+    if system == "darwin":
+        return _check_services_darwin()
+    return _check_services_linux()
+
+
+def _linux_cron_active() -> bool:
+    for unit in ("cron", "crond"):
+        result = _run_command(["systemctl", "is-active", unit])
+        if result.returncode == 0 and result.stdout.strip() == "active":
+            return True
+    return False
+
+
+def _check_daemon_linux() -> List[str]:
+    try:
+        if _linux_cron_active():
             logger.debug("Cron daemon: is active")
-    except subprocess.TimeoutExpired:
-        errors.append("Cron daemon: timeout")
-    except FileNotFoundError:
-        errors.append("Cron daemon: systemctl not found")
-    except subprocess.SubprocessError as e:
-        errors.append(f"Cron daemon: {type(e).__name__}")
-    except Exception as e:
-        errors.append(f"Cron daemon: {type(e).__name__}")
-    return errors
+        else:
+            logger.warning("Cron daemon: is not running")
+    except Exception as exc:
+        return _tool_errors(exc, "systemctl", "Cron daemon")
+    return []
+
+
+def _macos_cron_running(stdout: str) -> bool:
+    running = False
+    for line in stdout.splitlines():
+        parts = line.split()
+        if len(parts) < LAUNCHCTL_LIST_COLUMNS or parts[-1] not in MACOS_CRON_LABELS:
+            continue
+        if parts[0].isdigit() and int(parts[0]) > 0:
+            running = True
+    return running
+
+
+def _check_daemon_darwin() -> List[str]:
+    try:
+        result = _run_command(["launchctl", "list"])
+        if result.returncode == 0 and _macos_cron_running(result.stdout):
+            logger.debug("Cron daemon: is active")
+        else:
+            logger.warning("Cron daemon: is not running")
+    except Exception as exc:
+        return _tool_errors(exc, "launchctl", "Cron daemon")
+    return []
+
+
+def _service_is_running(name: str) -> bool:
+    result = _run_command(["sc", "query", name])
+    text = result.stdout.upper()
+    if re.search(r"(STATE|ESTADO|ÉTAT|STATUS)\s*:\s*\d+\s+(RUNNING|EJECUT)", text):
+        return True
+    return "RUNNING" in text or "EJECUTANDO" in text
+
+
+def _check_daemon_windows() -> List[str]:
+    try:
+        schedule_running = _service_is_running("Schedule")
+        cron_running = (not schedule_running) and any(_service_is_running(name) for name in WINDOWS_CRON_SERVICES)
+        if schedule_running or cron_running:
+            logger.debug("Cron daemon: is active")
+        else:
+            logger.warning("Cron daemon: is not running")
+    except Exception as exc:
+        return _tool_errors(exc, "sc", "Cron daemon")
+    return []
+
+
+def check_daemon() -> List[str]:
+    """Check whether the platform scheduler is running."""
+    system = platform.system().lower()
+    if system == "windows":
+        return _check_daemon_windows()
+    if system == "darwin":
+        return _check_daemon_darwin()
+    return _check_daemon_linux()
 
 
 def check_kind(path: str, follow_symlink: bool = True) -> str:
@@ -106,12 +336,76 @@ def check_kind(path: str, follow_symlink: bool = True) -> str:
     return "unknown"
 
 
+def _ace_allows_write(ace: str) -> bool:
+    tokens = [token.upper() for token in re.findall(r"[A-Za-z]+", ace)]
+    rights = [token for token in tokens if token not in _ACL_INHERIT_TOKENS]
+    return any(right in _ACL_WRITE_RIGHTS for right in rights)
+
+
+def _is_world_principal(line: str) -> bool:
+    lowered = line.lower()
+    markers = ("everyone:", "authenticated users:", "usuarios autentificados:", "builtin\\users:", "\\users:")
+    return any(marker in lowered for marker in markers)
+
+
+def _windows_owner_ok(owner: str) -> bool:
+    leaf = owner.lower().replace("/", "\\").split("\\")[-1].strip()
+    return leaf in _WINDOWS_TRUSTED_OWNERS
+
+
+def _windows_owner(file_path: str) -> str:
+    safe = file_path.replace("'", "''")
+    script = f"(Get-Acl -LiteralPath '{safe}').Owner"
+    try:
+        result = _run_command(["powershell", "-NoProfile", "-NonInteractive", "-Command", script], timeout=8)
+    except (subprocess.SubprocessError, OSError):
+        return ""
+    if result.returncode != 0:
+        return ""
+    return result.stdout.strip()
+
+
+def _check_windows_permissions(file_path: str) -> List[str]:
+    """Validate a crontab ACL: not world-writable, owned by Administrators or SYSTEM."""
+    errors: List[str] = []
+    try:
+        if os.path.islink(file_path):
+            target_path = os.path.realpath(file_path)
+            if not os.path.exists(target_path):
+                errors.append(f"broken symlink ({target_path} does not exist)")
+                return errors
+        else:
+            target_path = file_path
+        file_kind = check_kind(target_path)
+        if file_kind != "regular_file":
+            errors.append(f"{target_path}({file_kind}): not a regular_file.")
+            return errors
+        result = _run_command(["icacls", target_path])
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout or "icacls failed").strip()
+            errors.append(f"failed to read permissions: {detail}")
+            return errors
+        for line in result.stdout.splitlines():
+            aces = re.findall(r"\(([^)]*)\)", line)
+            if _is_world_principal(line) and any(_ace_allows_write(ace) for ace in aces):
+                errors.append(f"wrong permissions (world-writable ACL): icacls {target_path}")
+                break
+        owner = _windows_owner(target_path)
+        if owner and not _windows_owner_ok(owner):
+            errors.append(f"crontab wrong owner: icacls {target_path} /setowner Administrators")
+    except Exception as exc:
+        errors.extend(_tool_errors(exc, "icacls", "File permissions"))
+    return errors
+
+
 def check_owner_and_permissions(file_path: str, owner_uid: int = CRONTAB_OWNER_UID) -> List[str]:
     """Check owner and file permissions"""
     errors: List[str] = []
     if not os.path.lexists(file_path):
         errors.append(f"{file_path}: file does not exist")
         return errors
+    if platform.system().lower() == "windows":
+        return _check_windows_permissions(file_path)
     try:
         if os.path.islink(file_path):
             try:
@@ -260,11 +554,20 @@ def check_day_of_week(weekday: str) -> List[str]:
     return errors
 
 
+def _windows_user_exists(username: str) -> bool:
+    if username.lower() in WINDOWS_BUILTIN_USERS:
+        return True
+    result = _run_command(["net", "user", username])
+    return result.returncode == 0
+
+
 def check_user_exists(username: str) -> bool:
     """Check if user exists in the system"""
     if username in ("root", "pytest_user"):  # users always exists for tests
         return True
     try:
+        if platform.system().lower() == "windows":
+            return _windows_user_exists(username)
         result = subprocess.run(["id", username], capture_output=True, text=True, timeout=5, check=False)
         return result.returncode == 0
     except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError):
@@ -280,12 +583,7 @@ def check_user(username: str) -> Tuple[List[str], List[str]]:
     warnings: List[str] = []
     if not username or username.startswith("#") or '"' in username or "@" in username or " " in username or not re.compile(r"^[a-zA-Z][a-zA-Z0-9_-]{0,31}$").match(username):
         errors.append(f"invalid user format: '{username}'")
-    elif platform.system().lower() == "windows":
-        # Skip user existence check on Windows
-        return errors, warnings
-    # Check if user exists in the system (only on Linux/macOS)
     elif not check_user_exists(username):
-        # On Linux/macOS, log warning instead of error
         warnings.append(f"user does not exist: '{username}'")
     return errors, warnings
 
@@ -352,7 +650,7 @@ def check_line(line: str, line_number: int, file_name: str, file_path: Optional[
     warnings: List[str] = []
 
     # Skip environment variables
-    if "=" in line and not any(char.isdigit() or char in "*@" for char in line.split("=")[0]):
+    if "=" in line and not any(char.isdigit() or char in "*@" for char in line.split("=", maxsplit=1)[0]):
         return errors, warnings
 
     # Check for special keywords
@@ -511,7 +809,7 @@ def check_line_system(line: str, line_number: int, file_name: str, file_path: Op
 def check_line_special(line: str, line_number: int, file_name: str, file_path: Optional[str] = None) -> List[str]:
     """Legacy function for special keyword line checking"""
     # Determine if this is system crontab based on file path
-    is_system_crontab = bool(file_path and (file_path == "/etc/crontab" or file_path.startswith("/etc/cron.d/") or "system" in file_name.lower()))
+    is_system_crontab = is_system_crontab_path(file_path) if file_path else "system" in file_name.lower()
     errors, warnings = check_line(line, line_number, file_name, file_path, is_system_crontab=is_system_crontab)
     return errors
 

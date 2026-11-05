@@ -14,24 +14,38 @@ Un script de Python para verificar la sintaxis de archivos crontab. Soporte mult
 ### Requisitos
 
 - **Python 3.7 o superior**
-- **Linux/macOS**: Sistema Linux/Unix con systemctl (para verificaciones de demonios), acceso de lectura a `/etc/crontab`
-- **Windows**: Sin requisitos adicionales (solo validación basada en archivos)
+- **Linux**: `systemctl` para servicios y el demonio cron, lectura de `/etc/crontab`
+- **macOS**: `launchctl` para launchd y cron (`com.vix.cron`), lectura de `/etc/crontab`
+- **Windows**: `sc` y `net` para el Programador de tareas y las cuentas locales, `icacls` para las ACL
 
 ### Soporte de plataformas
 
-**Linux/macOS (Soporte completo):**
-- Validación de crontab del sistema (`/etc/crontab`)
-- Validación de crontab de usuario (vía `crontab -l -u username`)
-- Validación de existencia de usuario
-- Verificaciones de demonios/servicios vía systemctl
-- Todas las características de sintaxis crontab
+**Linux (Soporte completo):**
+- ✅ Validación de crontab del sistema (`/etc/crontab`)
+- ✅ Validación de crontab de usuario (vía `crontab -l -u username`)
+- ✅ Validación de existencia de usuario
+- ✅ Verificaciones de demonios/servicios vía systemctl
+- ✅ Todas las características de sintaxis crontab
+- ✅ Validación de permisos de archivos
+- ✅ Estado del demonio cron
 
-**Windows (Soporte limitado):**
-- Validación de sintaxis crontab basada en archivos
-- Sin verificaciones de existencia de usuario
-- Sin acceso a crontab del sistema
-- Sin verificaciones de demonios/servicios
-- Todas las características de sintaxis crontab soportadas
+**macOS (Soporte completo):**
+- ✅ Validación de crontab del sistema (`/etc/crontab`)
+- ✅ Validación de crontab de usuario (vía `crontab -l -u username`)
+- ✅ Validación de existencia de usuario
+- ✅ Verificaciones de demonios/servicios vía launchctl
+- ✅ Todas las características de sintaxis crontab
+- ✅ Validación de permisos de archivos
+- ✅ Estado del demonio cron (`com.vix.cron` / `com.apple.cron`)
+
+**Windows (Soporte completo):**
+- ✅ Validación de sintaxis crontab basada en archivos
+- ✅ Verificación de existencia de usuario (vía `net user`)
+- ✅ Acceso al crontab del sistema (`%ProgramData%\crontab`, `C:\etc\crontab`, Cygwin, MSYS2 o `CRONTAB_SYSTEM_PATH`)
+- ✅ Verificaciones de demonios/servicios vía `sc`
+- ✅ Todas las características de sintaxis crontab soportadas
+- ✅ Validación de permisos vía `icacls`
+- ✅ Estado del planificador (servicio `Schedule` o un servicio cron instalado)
 
 ### Instalación
 
@@ -48,13 +62,13 @@ pip3 install git+https://github.com/wachawo/checkcrontab.git
 ### Uso
 
 ```bash
-# Verificar el crontab del sistema (solo Linux/macOS)
+# Verificar el crontab del sistema, si existe
 checkcrontab
 
 # Verificar un archivo crontab
 checkcrontab /etc/crontab
 
-# Verificar el crontab de un usuario (solo Linux/macOS)
+# Verificar el crontab de un usuario
 checkcrontab username
 
 # Verificar con banderas de tipo explícitas

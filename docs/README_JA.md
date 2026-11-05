@@ -14,24 +14,38 @@ crontabファイルの構文をチェックするPythonスクリプト。Linux�
 ### 要件
 
 - **Python 3.7以上**
-- **Linux/macOS**: systemctl付きLinux/Unixシステム（デーモンチェック用）、`/etc/crontab`への読み取りアクセス
-- **Windows**: 追加要件なし（ファイルベースの検証のみ）
+- **Linux**: サービスと cron デーモン確認用の `systemctl`、`/etc/crontab` の読み取り
+- **macOS**: launchd と cron（`com.vix.cron`）確認用の `launchctl`、`/etc/crontab` の読み取り
+- **Windows**: タスク スケジューラとローカル アカウント用の `sc` / `net`、ACL 用の `icacls`
 
 ### プラットフォームサポート
 
-**Linux/macOS（完全サポート）：**
-- システムcrontab検証（`/etc/crontab`）
-- ユーザーcrontab検証（`crontab -l -u username`経由）
-- ユーザー存在性検証
-- systemctl経由のデーモン/サービスチェック
-- すべてのcrontab構文機能
+**Linux（完全サポート）：**
+- ✅ システム crontab 検証（`/etc/crontab`）
+- ✅ ユーザー crontab 検証（`crontab -l -u username`）
+- ✅ ユーザー存在確認
+- ✅ systemctl によるデーモン/サービス確認
+- ✅ すべての crontab 構文機能
+- ✅ ファイル権限の検証
+- ✅ cron デーモンの状態確認
 
-**Windows（制限付きサポート）：**
-- ファイルベースのcrontab構文検証
-- ユーザー存在性チェックなし
-- システムcrontabアクセスなし
-- デーモン/サービスチェックなし
-- すべてのcrontab構文機能がサポート
+**macOS（完全サポート）：**
+- ✅ システム crontab 検証（`/etc/crontab`）
+- ✅ ユーザー crontab 検証（`crontab -l -u username`）
+- ✅ ユーザー存在確認
+- ✅ launchctl によるデーモン/サービス確認
+- ✅ すべての crontab 構文機能
+- ✅ ファイル権限の検証
+- ✅ cron の状態確認（`com.vix.cron` / `com.apple.cron`）
+
+**Windows（完全サポート）：**
+- ✅ ファイルベースの crontab 構文検証
+- ✅ ユーザー存在確認（`net user`）
+- ✅ システム crontab へのアクセス（`%ProgramData%\crontab`、`C:\etc\crontab`、Cygwin、MSYS2、または `CRONTAB_SYSTEM_PATH`）
+- ✅ `sc` によるデーモン/サービス確認
+- ✅ すべての crontab 構文機能
+- ✅ `icacls` による権限検証
+- ✅ タスク スケジューラ（`Schedule`）または導入済み cron サービスの状態確認
 
 ### インストール
 

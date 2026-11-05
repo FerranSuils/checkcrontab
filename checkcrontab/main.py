@@ -129,13 +129,7 @@ def check_file(file_path: str, is_system_crontab: bool = False) -> Tuple[int, Li
 
 def find_user_crontab(username: str) -> Optional[str]:
     """Find user crontab file path or get content via crontab command"""
-    # First try to find existing file
-    possible_paths = [
-        f"/var/spool/cron/crontabs/{username}",
-        f"/var/spool/cron/{username}",
-        f"/tmp/crontab.{username}",
-    ]
-    for path in possible_paths:
+    for path in checker.user_crontab_paths(username):
         if os.path.exists(path):
             return path
 
@@ -286,7 +280,7 @@ Usage examples:
         if os.path.isfile(path):
             # First check if it's an existing file
             full_path = os.path.abspath(path)
-            is_system_crontab = bool(full_path == "/etc/crontab" or full_path.startswith("/etc/cron.d") or "system" in os.path.basename(full_path))
+            is_system_crontab = checker.is_system_crontab_path(full_path)
             files_list.append((full_path, is_system_crontab))
         elif os.path.isdir(path):
             # If directory, add all files inside as system crontabs
@@ -295,7 +289,7 @@ Usage examples:
                 logger.warning(warning)
             for file in files:
                 full_path = os.path.abspath(file)
-                is_system_crontab = bool(full_path == "/etc/crontab" or full_path.startswith("/etc/cron.d") or "system" in os.path.basename(full_path))
+                is_system_crontab = checker.is_system_crontab_path(full_path)
                 files_list.append((full_path, is_system_crontab))
         elif re.compile(r"^[a-zA-Z][a-zA-Z0-9_-]{0,31}$").match(path):
             # If not a file, treat as username
@@ -309,17 +303,21 @@ Usage examples:
         else:
             logger.warning(f"{path} File not found and is not a valid username")
 
-    # Add system crontab on Linux if not already included
-    if platform.system().lower() == "linux":
-        is_github = os.getenv("GITHUB_ACTIONS") == "true"
-        # Only check daemon and permissions on Linux and not in GitHub Actions
-        if not is_github:
-            for w in checker.check_daemon():
-                logger.warning(w)
-        # if not any(file_path == "/etc/crontab" for file_path, _ in files_list):
-        #    files_list.insert(0, ("/etc/crontab", True))
-    else:
-        logger.info("Skipping system checks on non-Linux system")
+    # Service manager and scheduler status on Linux, macOS, and Windows.
+    # Skipped in GitHub Actions, where those managers are not the thing under test.
+    logger.debug(f"Platform: {platform.system()}")
+    if os.getenv("GITHUB_ACTIONS") != "true":
+        for w in checker.check_services():
+            logger.warning(w)
+        for w in checker.check_daemon():
+            logger.warning(w)
+
+    no_targets = not args.system and not args.user and not args.username and not args.arguments
+    if no_targets and not files_list:
+        system_path = checker.find_system_crontab()
+        if system_path:
+            files_list.append((system_path, True))
+            logger.info(f"Using system crontab: {system_path}")
 
     if len(files_list) == 0:
         logger.warning("No files to check.")
@@ -368,7 +366,7 @@ Usage examples:
                         logger.error(msg)
                     continue
             file_level_errors: List[str] = []
-            if platform.system().lower() == "linux" and is_system_crontab:
+            if is_system_crontab:
                 errors = checker.check_owner_and_permissions(path)
                 for err in errors:
                     err_msg = f"{os.path.basename(path)} (Line 0): {err}"
