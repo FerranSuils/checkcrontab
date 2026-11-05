@@ -127,15 +127,17 @@ minute hour day month weekday user command
 - Step: `*/2` (every 2 days)
 - All: `*`
 
-#### Month (1-12)
+#### Month (1-12, or JAN-DEC)
 - Single value: `6`
+- Name: `JAN`
 - Range: `1-6`
 - List: `1,6,12`
 - Step: `*/3` (every 3 months)
 - All: `*`
 
-#### Day of Week (0-7, where 0 and 7 are Sunday)
+#### Day of Week (0-7, where 0 and 7 are Sunday, or SUN-SAT)
 - Single value: `1` (Monday)
+- Name: `MON`
 - Range: `1-5` (Monday to Friday)
 - List: `1,3,5` (Monday, Wednesday, Friday)
 - Step: `*/2` (every 2 days)
@@ -151,6 +153,7 @@ minute hour day month weekday user command
 @monthly   command
 @weekly    command
 @daily     command
+@midnight  command
 @hourly    command
 ```
 
@@ -162,6 +165,7 @@ minute hour day month weekday user command
 @monthly   user command
 @weekly    user command
 @daily     user command
+@midnight  user command
 @hourly    user command
 ```
 
@@ -172,6 +176,8 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 MAILTO=user@example.com
 HOME=/home/user
 ```
+
+`SHELL` and `HOME` must be absolute paths. `PATH` must be non-empty. `MAILTO` may be empty, a username, or an email address. Other names are accepted when they are identifiers and the value has no spaces.
 
 ### Multi-line Commands
 ```
@@ -191,27 +197,27 @@ The `-` prefix before the minute field suppresses syslog logging.
 #### User Field Validation
 - Must be a valid system user
 - Cannot contain spaces, quotes, or special characters
-- On Linux/macOS: User must exist in the system
+- The account must exist (`id` on Linux and macOS, `net user` on Windows)
 
 ## Validation Rules
 
 ### Time Field Validation
 - Values must be within valid ranges
 - Negative values are not allowed
-- Non-numeric values are not allowed
+- Month and weekday fields accept numbers or the names `JAN`-`DEC` and `SUN`-`SAT`
+- Other non-numeric values are not allowed
 - Ranges must be in ascending order (e.g., `1-5`, not `5-1`)
 - Steps must be positive integers
 
 ### Command Field Validation
 - Command field is required
-- Dangerous commands are detected and flagged
+- Dangerous commands are detected and flagged (`rm -rf /`, `mkfs` of a device, `dd` from `/dev/zero` or `/dev/urandom`, a fork bomb, `chmod -R 777 /`)
 - Multi-line commands are supported with `\` continuation
 
 ### User Field Validation (System Crontab)
 - User field is required
 - User must be a valid username format
-- On Linux/macOS: User existence is verified
-- On Windows: User existence checks are skipped
+- User existence is verified on Linux, macOS, and Windows
 
 ### Special Keyword Validation
 - Keywords are case-sensitive (must be lowercase)
@@ -236,7 +242,7 @@ The `-` prefix before the minute field suppresses syslog logging.
 
 ### User Field Errors
 - `Invalid user field format` - Contains invalid characters
-- `User does not exist: username` - User not found (Linux/macOS only)
+- `User does not exist: username` - User not found
 
 ### Command Field Errors
 - `Missing command field` - No command specified

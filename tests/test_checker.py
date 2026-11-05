@@ -557,15 +557,15 @@ def test_check_special_user_warning_nonexistent_user():
     # This should trigger the warning path in check_special (line 329)
     with patch("checkcrontab.checker.check_user_exists", return_value=False):
         with patch("checkcrontab.checker.platform.system", return_value="Linux"):
-            errors = checker.check_special("@reboot", ["@reboot", "nonexistentuser123", "echo test"], is_system_crontab=True)
-            # Should not have errors (warnings are logged, not returned)
+            errors, warnings = checker.check_special("@reboot", ["@reboot", "nonexistentuser123", "echo test"], is_system_crontab=True)
             assert errors == []
+            assert any("does not exist" in warning for warning in warnings)
 
 
 def test_check_special_user_no_command():
     """Test check_special with user crontab without command"""
     # User crontab: only @keyword without command
-    errors = checker.check_special("@reboot", ["@reboot"], is_system_crontab=False)
+    errors, _warnings = checker.check_special("@reboot", ["@reboot"], is_system_crontab=False)
     assert len(errors) == 1
     assert "minimum 2 required" in errors[0]
 
@@ -618,7 +618,7 @@ def test_check_daemon_darwin_running(mock_platform, mock_run):
 @patch("checkcrontab.checker.platform.system", return_value="Darwin")
 def test_check_daemon_darwin_not_running(mock_platform, mock_run):
     mock_run.return_value = _completed(stdout="- 0 com.vix.cron\n")
-    assert checker.check_daemon() == []
+    assert checker.check_daemon() == ["Cron daemon: is not running"]
 
 
 @patch("checkcrontab.checker.subprocess.run")
@@ -735,6 +735,29 @@ def test_find_system_crontab_override(tmp_path, monkeypatch):
     target.write_text("0 1 * * * root echo ok\n")
     monkeypatch.setenv("CRONTAB_SYSTEM_PATH", str(target))
     assert checker.find_system_crontab() == str(target)
+
+
+def test_month_and_weekday_names():
+    errors, warnings = checker.check_line("0 0 * JAN-MAR MON-FRI /bin/true", 1, "cron", is_system_crontab=False)
+    assert errors == []
+    assert warnings == []
+    bad, _warnings = checker.check_line("0 0 * FOO MON /bin/true", 2, "cron", is_system_crontab=False)
+    assert any("invalid month format" in error for error in bad)
+
+
+def test_environment_assignment_validation():
+    assert checker.check_environment_assignment("SHELL", "/bin/bash") == []
+    assert checker.check_environment_assignment("MAILTO", "") == []
+    assert checker.check_environment_assignment("MAILTO", "root") == []
+    assert any("SHELL" in error for error in checker.check_environment_assignment("SHELL", ""))
+    assert any("HOME" in error for error in checker.check_environment_assignment("HOME", "relative"))
+    assert any("name" in error for error in checker.check_environment_assignment("BAD-NAME", "x"))
+
+
+def test_additional_dangerous_commands():
+    assert any("mkfs" in error for error in checker.check_dangerous_commands("mkfs.ext4 /dev/sda"))
+    assert any("chmod" in error for error in checker.check_dangerous_commands("chmod -R 777 /"))
+    assert checker.check_dangerous_commands("/usr/bin/mkfs") == []
 
 
 def test_user_crontab_paths_cover_macos_and_windows(monkeypatch):
