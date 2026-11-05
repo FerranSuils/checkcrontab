@@ -14,24 +14,38 @@ Un script Python pour vérifier la syntaxe des fichiers crontab. Support multipl
 ### Exigences
 
 - **Python 3.7 ou supérieur**
-- **Linux/macOS**: Système Linux/Unix avec systemctl (pour les vérifications de démons), accès en lecture à `/etc/crontab`
-- **Windows**: Aucune exigence supplémentaire (validation basée sur les fichiers uniquement)
+- **Linux**: `systemctl` pour les services et le démon cron, lecture de `/etc/crontab`
+- **macOS**: `launchctl` pour launchd et cron (`com.vix.cron`), lecture de `/etc/crontab`
+- **Windows**: `sc` et `net` pour le Planificateur de tâches et les comptes locaux, `icacls` pour les ACL
 
 ### Support des plateformes
 
-**Linux/macOS (Support complet):**
-- Validation du crontab système (`/etc/crontab`)
-- Validation du crontab utilisateur (via `crontab -l -u username`)
-- Validation de l'existence de l'utilisateur
-- Vérifications de démons/services via systemctl
-- Toutes les fonctionnalités de syntaxe crontab
+**Linux (Support complet):**
+- ✅ Validation du crontab système (`/etc/crontab`)
+- ✅ Validation du crontab utilisateur (via `crontab -l -u username`)
+- ✅ Validation de l'existence de l'utilisateur
+- ✅ Vérifications de démons/services via systemctl
+- ✅ Toutes les fonctionnalités de syntaxe crontab
+- ✅ Validation des permissions
+- ✅ État du démon cron
 
-**Windows (Support limité):**
-- Validation de syntaxe crontab basée sur les fichiers
-- Aucune vérification d'existence d'utilisateur
-- Aucun accès au crontab système
-- Aucune vérification de démons/services
-- Toutes les fonctionnalités de syntaxe crontab prises en charge
+**macOS (Support complet):**
+- ✅ Validation du crontab système (`/etc/crontab`)
+- ✅ Validation du crontab utilisateur (via `crontab -l -u username`)
+- ✅ Validation de l'existence de l'utilisateur
+- ✅ Vérifications de démons/services via launchctl
+- ✅ Toutes les fonctionnalités de syntaxe crontab
+- ✅ Validation des permissions
+- ✅ État du démon cron (`com.vix.cron` / `com.apple.cron`)
+
+**Windows (Support complet):**
+- ✅ Validation de syntaxe crontab basée sur les fichiers
+- ✅ Vérification de l'existence de l'utilisateur (via `net user`)
+- ✅ Accès au crontab système (`%ProgramData%\crontab`, `C:\etc\crontab`, Cygwin, MSYS2 ou `CRONTAB_SYSTEM_PATH`)
+- ✅ Vérifications de démons/services via `sc`
+- ✅ Toutes les fonctionnalités de syntaxe crontab prises en charge
+- ✅ Validation des permissions via `icacls`
+- ✅ État du Planificateur de tâches (`Schedule`) ou d'un service cron installé
 
 ### Installation
 

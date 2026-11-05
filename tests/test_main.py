@@ -553,16 +553,35 @@ def test_json_explicit_missing_files(mock_exists, mock_env, mock_platform, capsy
         assert "does not exist" in f["errors"][0]
 
 
+@patch("checkcrontab.main.platform.system", return_value="Linux")
+@patch("checkcrontab.checker.check_owner_and_permissions", return_value=[])
+def test_no_args_uses_existing_system_crontab(mock_perm, mock_platform, tmp_path, monkeypatch, capsys):
+    system = tmp_path / "crontab"
+    system.write_text("0 1 * * * root echo ok\n")
+    monkeypatch.setenv("CRONTAB_SYSTEM_PATH", str(system))
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    code = run_main(["--format", "json"])
+    data = json.loads(capsys.readouterr().out)
+    assert code == 0
+    assert data["total_files"] == 1
+    assert data["files"][0]["is_system_crontab"] is True
+    assert data["files"][0]["file"] == str(system)
+
+
 @patch("checkcrontab.main.platform.system", return_value="Darwin")
-@patch("checkcrontab.main.os.getenv", return_value="true")
+@patch("checkcrontab.main.os.getenv", return_value=None)
 @patch("checkcrontab.main.os.path.exists", return_value=True)
-def test_non_linux_message(mock_exists, mock_env, mock_platform, caplog, tmp_path):
-    caplog.set_level("INFO")
+@patch("checkcrontab.checker.check_services", return_value=[])
+@patch("checkcrontab.checker.check_daemon", return_value=["Cron daemon: launchctl not found"])
+def test_darwin_runs_system_checks(mock_daemon, mock_services, mock_exists, mock_env, mock_platform, caplog, tmp_path):
+    caplog.set_level("WARNING")
     f = tmp_path / "user_cron"
     f.write_text("0 1 * * * echo mac\n")
     code = run_main([str(f)])
     assert code == 0
-    assert any("Skipping system checks on non-Linux" in r.getMessage() for r in caplog.records)
+    mock_services.assert_called_once()
+    mock_daemon.assert_called_once()
+    assert any("launchctl not found" in r.getMessage() for r in caplog.records)
 
 
 @patch("checkcrontab.main.platform.system", return_value="Linux")
@@ -570,7 +589,9 @@ def test_non_linux_message(mock_exists, mock_env, mock_platform, caplog, tmp_pat
 @patch("checkcrontab.main.os.path.exists", return_value=False)
 @patch("checkcrontab.checker.check_daemon")
 @patch("checkcrontab.checker.check_owner_and_permissions")
-def test_auto_added_missing_system_file_warning(mock_perm, mock_daemon, mock_exists, mock_env, mock_platform, caplog):
+@patch("checkcrontab.checker.check_services", return_value=[])
+@patch("checkcrontab.checker.find_system_crontab", return_value=None)
+def test_auto_added_missing_system_file_warning(mock_find, mock_services, mock_perm, mock_daemon, mock_exists, mock_env, mock_platform, caplog):
     caplog.set_level("WARNING")
     # /etc/crontab will be auto-added then reported missing
     code = run_main([])

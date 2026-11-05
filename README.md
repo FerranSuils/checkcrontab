@@ -16,9 +16,9 @@ A Python script for checking syntax of crontab files. Cross-platform support for
 ### Requirements
 
 - **Python 3.7 or higher**
-- **Linux**: Linux system with systemctl (for daemon checks), read access to `/etc/crontab`
-- **macOS**: Unix system with read access to `/etc/crontab` (systemctl not available)
-- **Windows**: No additional requirements (file-based validation only)
+- **Linux**: `systemctl` for service and cron daemon checks, read access to `/etc/crontab`
+- **macOS**: `launchctl` for launchd and cron (`com.vix.cron`) checks, read access to `/etc/crontab`
+- **Windows**: `sc` and `net` for the Task Scheduler and local accounts, `icacls` for crontab ACLs
 
 ### Platform Support
 
@@ -31,23 +31,23 @@ A Python script for checking syntax of crontab files. Cross-platform support for
 - ✅ File permissions validation
 - ✅ Cron daemon status checks
 
-**macOS (Partial Support):**
+**macOS (Full Support):**
 - ✅ System crontab validation (`/etc/crontab`)
 - ✅ User crontab validation (via `crontab -l -u username`)
 - ✅ User existence validation
-- ❌ Daemon/service checks (systemctl not available)
+- ✅ Daemon/service checks via launchctl
 - ✅ All crontab syntax features
 - ✅ File permissions validation
-- ❌ Cron daemon status checks
+- ✅ Cron daemon status checks (`com.vix.cron` / `com.apple.cron`)
 
-**Windows (Limited Support):**
+**Windows (Full Support):**
 - ✅ File-based crontab syntax validation
-- ❌ User existence checks (no user management integration)
-- ❌ System crontab access (no `/etc/crontab`)
-- ❌ Daemon/service checks (no systemctl)
+- ✅ User existence checks (via `net user`)
+- ✅ System crontab access (`%ProgramData%\crontab`, `C:\etc\crontab`, Cygwin, MSYS2, or `CRONTAB_SYSTEM_PATH`)
+- ✅ Daemon/service checks via `sc`
 - ✅ All crontab syntax features supported
-- ❌ File permissions validation (no Unix permissions)
-- ❌ Cron daemon status checks (no cron daemon)
+- ✅ File permissions validation via `icacls`
+- ✅ Cron daemon status checks (Task Scheduler service `Schedule`, or an installed cron service)
 
 ### Installation
 
@@ -64,13 +64,13 @@ pip3 install git+https://github.com/wachawo/checkcrontab.git
 ### Usage
 
 ```bash
-# Check system crontab (Linux/macOS only)
+# Check the system crontab when one is installed
 checkcrontab
 
 # Check crontab file
 checkcrontab /etc/crontab
 
-# Check user crontab (Linux/macOS only)
+# Check user crontab
 checkcrontab username
 
 # Check with explicit type flags
@@ -87,9 +87,9 @@ checkcrontab --version
 ```
 
 **Platform-specific behavior:**
-- **Linux**: Full functionality including daemon checks and user validation
-- **macOS**: Full functionality except daemon checks (systemctl not available)
-- **Windows**: File-based validation only, no system integration
+- **Linux**: Full functionality, including systemd service checks and `cron`/`crond` status
+- **macOS**: Full functionality, including launchd service checks and cron job status
+- **Windows**: Full functionality, including Service Control Manager, Task Scheduler, local users, and ACLs
 
 ### TEXT Output
 To redirect output from STDERR to STDOUT (for example, in CI), use --format text:

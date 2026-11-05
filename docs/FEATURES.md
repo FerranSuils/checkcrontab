@@ -63,23 +63,23 @@ When using `--format json` flag, the output is structured as follows:
 - ✅ File permissions validation
 - ✅ Cron daemon status checks
 
-### macOS (Partial Support)
+### macOS (Full Support)
 - ✅ System crontab validation (`/etc/crontab`)
 - ✅ User crontab validation (via `crontab -l -u username`)
 - ✅ User existence validation
-- ❌ Daemon/service checks (systemctl not available)
+- ✅ Daemon/service checks via launchctl
 - ✅ All crontab syntax features
 - ✅ File permissions validation
-- ❌ Cron daemon status checks
+- ✅ Cron daemon status checks (`com.vix.cron` / `com.apple.cron`)
 
-### Windows (Limited Support)
+### Windows (Full Support)
 - ✅ File-based crontab syntax validation
-- ❌ User existence checks (no user management integration)
-- ❌ System crontab access (no `/etc/crontab`)
-- ❌ Daemon/service checks (no systemctl)
+- ✅ User existence checks (via `net user`)
+- ✅ System crontab access (`%ProgramData%\crontab`, `C:\etc\crontab`, Cygwin, MSYS2, or `CRONTAB_SYSTEM_PATH`)
+- ✅ Daemon/service checks via `sc`
 - ✅ All crontab syntax features supported
-- ❌ File permissions validation (no Unix permissions)
-- ❌ Cron daemon status checks (no cron daemon)
+- ✅ File permissions validation via `icacls`
+- ✅ Cron daemon status checks (Task Scheduler service `Schedule`, or an installed cron service)
 
 ### Cross-Platform Features
 - ✅ Syntax validation for all time fields
@@ -313,42 +313,42 @@ SHELL=/bin/sh
 - ✅ Daemon status warnings if cron service is not running
 - ✅ File permission warnings for insecure system crontab
 
-### macOS (Partial Support)
+### macOS (Full Support)
 **System Integration:**
 - ✅ Automatic system crontab detection (`/etc/crontab`)
-- ✅ User crontab retrieval via `crontab -l -u username`
+- ✅ User crontab retrieval via `crontab -l -u username` and `/usr/lib/cron/tabs`
 - ✅ User existence validation using `id` command
-- ❌ Cron daemon status checks (systemctl not available)
+- ✅ Daemon/service checks via `launchctl list`
+- ✅ Cron daemon status checks for `com.vix.cron` and `com.apple.cron`
 - ✅ File permissions validation for system crontab
 
 **Validation Features:**
 - ✅ All syntax validation features
 - ✅ User existence checks for system crontab entries
-- ❌ Daemon status checks (macOS uses launchd, not systemctl)
+- ✅ Daemon status warnings if cron is not loaded in launchd
 - ✅ File permission warnings for insecure system crontab
 
-### Windows (Limited Support)
+### Windows (Full Support)
 **System Integration:**
-- ❌ No automatic system crontab detection (no `/etc/crontab`)
-- ❌ No user crontab retrieval (no `crontab` command)
-- ❌ No user existence validation (no Unix user management)
-- ❌ No daemon status checks (no cron daemon)
-- ❌ No file permissions validation (no Unix permissions)
+- ✅ System crontab detection (`%ProgramData%\crontab`, `C:\etc\crontab`, Cygwin, MSYS2, or `CRONTAB_SYSTEM_PATH`)
+- ✅ User crontab retrieval via `crontab -l -u username` and per-user spool paths
+- ✅ User existence validation using `net user`
+- ✅ Daemon/service checks via `sc query`
+- ✅ Cron daemon status checks for the Task Scheduler service (`Schedule`) and an installed cron service
+- ✅ File permissions validation via `icacls` (no world write; owner Administrators or SYSTEM)
 
 **Validation Features:**
 - ✅ All syntax validation features
-- ❌ User existence checks (skipped on Windows)
-- ❌ Daemon status checks (not applicable)
-- ❌ File permission checks (not applicable)
+- ✅ User existence checks for system crontab entries
+- ✅ Daemon status warnings if Task Scheduler and cron services are stopped
+- ✅ File permission warnings for a world-writable crontab ACL
 
 **Windows Usage:**
 ```bash
-# Only file-based validation is available
+checkcrontab
 checkcrontab myfile.cron
 checkcrontab -S system.cron -U user.cron
-
-# User validation is skipped
-checkcrontab -u username  # Will show warning about unsupported feature
+checkcrontab -u username
 ```
 
 ### Cross-Platform Compatibility
@@ -362,8 +362,8 @@ checkcrontab -u username  # Will show warning about unsupported feature
 - ✅ File format validation (newline at end)
 - ✅ RFC compliance checks
 
-**Platform-Dependent:**
-- User existence validation (Linux/macOS only)
-- System crontab access (Linux/macOS only)
-- Daemon status checks (Linux only)
-- File permissions validation (Linux/macOS only)
+**Platform integration (every supported OS):**
+- User existence validation (`id` on Linux/macOS, `net user` on Windows)
+- System crontab access (`/etc/crontab` on Linux/macOS; ProgramData, `C:\etc\crontab`, Cygwin, MSYS2, or `CRONTAB_SYSTEM_PATH` on Windows)
+- Daemon and service checks (systemd, launchd, or the Service Control Manager)
+- File permissions validation (Unix mode on Linux/macOS, ACLs on Windows)

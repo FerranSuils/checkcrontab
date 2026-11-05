@@ -15,24 +15,38 @@ Ein Python-Skript zur Überprüfung der Syntax von crontab-Dateien. Plattformüb
 ### Anforderungen
 
 - **Python 3.7 oder höher**
-- **Linux/macOS**: Linux/Unix-System mit systemctl (für Daemon-Prüfungen), Lesezugriff auf `/etc/crontab`
-- **Windows**: Keine zusätzlichen Anforderungen (nur dateibasierte Validierung)
+- **Linux**: `systemctl` für Dienste und den Cron-Daemon, Lesezugriff auf `/etc/crontab`
+- **macOS**: `launchctl` für launchd und cron (`com.vix.cron`), Lesezugriff auf `/etc/crontab`
+- **Windows**: `sc` und `net` für den Taskplaner und lokale Konten, `icacls` für ACLs
 
 ### Plattformunterstützung
 
-**Linux/macOS (Vollständige Unterstützung):**
-- System-crontab-Validierung (`/etc/crontab`)
-- Benutzer-crontab-Validierung (über `crontab -l -u username`)
-- Benutzerexistenz-Validierung
-- Daemon/Service-Prüfungen über systemctl
-- Alle crontab-Syntax-Funktionen
+**Linux (Vollständige Unterstützung):**
+- ✅ System-crontab-Validierung (`/etc/crontab`)
+- ✅ Benutzer-crontab-Validierung (über `crontab -l -u username`)
+- ✅ Benutzerexistenz-Validierung
+- ✅ Daemon/Service-Prüfungen über systemctl
+- ✅ Alle crontab-Syntax-Funktionen
+- ✅ Prüfung der Dateirechte
+- ✅ Status des Cron-Daemons
 
-**Windows (Eingeschränkte Unterstützung):**
-- Dateibasierte crontab-Syntax-Validierung
-- Keine Benutzerexistenz-Prüfungen
-- Kein Zugriff auf System-crontab
-- Keine Daemon/Service-Prüfungen
-- Alle crontab-Syntax-Funktionen unterstützt
+**macOS (Vollständige Unterstützung):**
+- ✅ System-crontab-Validierung (`/etc/crontab`)
+- ✅ Benutzer-crontab-Validierung (über `crontab -l -u username`)
+- ✅ Benutzerexistenz-Validierung
+- ✅ Daemon/Service-Prüfungen über launchctl
+- ✅ Alle crontab-Syntax-Funktionen
+- ✅ Prüfung der Dateirechte
+- ✅ Status des Cron-Daemons (`com.vix.cron` / `com.apple.cron`)
+
+**Windows (Vollständige Unterstützung):**
+- ✅ Dateibasierte crontab-Syntax-Validierung
+- ✅ Benutzerexistenz-Prüfungen (über `net user`)
+- ✅ Zugriff auf die System-crontab (`%ProgramData%\crontab`, `C:\etc\crontab`, Cygwin, MSYS2 oder `CRONTAB_SYSTEM_PATH`)
+- ✅ Daemon/Service-Prüfungen über `sc`
+- ✅ Alle crontab-Syntax-Funktionen unterstützt
+- ✅ Rechteprüfung über `icacls`
+- ✅ Status des Taskplaners (`Schedule`) oder eines installierten Cron-Dienstes
 
 ### Installation
 

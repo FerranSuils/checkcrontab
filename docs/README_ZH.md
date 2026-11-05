@@ -14,24 +14,38 @@
 ### 要求
 
 - **Python 3.7 或更高版本**
-- **Linux/macOS**: 带有 systemctl 的 Linux/Unix 系统（用于守护进程检查），对 `/etc/crontab` 的读取权限
-- **Windows**: 无额外要求（仅基于文件的验证）
+- **Linux**: 用于服务和 cron 守护进程检查的 `systemctl`，可读取 `/etc/crontab`
+- **macOS**: 用于 launchd 和 cron（`com.vix.cron`）检查的 `launchctl`，可读取 `/etc/crontab`
+- **Windows**: 用于任务计划程序和本地帐户的 `sc` / `net`，用于 ACL 的 `icacls`
 
 ### 平台支持
 
-**Linux/macOS（完整支持）：**
-- 系统 crontab 验证（`/etc/crontab`）
-- 用户 crontab 验证（通过 `crontab -l -u username`）
-- 用户存在性验证
-- 通过 systemctl 进行守护进程/服务检查
-- 所有 crontab 语法功能
+**Linux（完整支持）：**
+- ✅ 系统 crontab 验证（`/etc/crontab`）
+- ✅ 用户 crontab 验证（通过 `crontab -l -u username`）
+- ✅ 用户存在性验证
+- ✅ 通过 systemctl 进行守护进程/服务检查
+- ✅ 所有 crontab 语法功能
+- ✅ 文件权限验证
+- ✅ cron 守护进程状态检查
 
-**Windows（有限支持）：**
-- 基于文件的 crontab 语法验证
-- 无用户存在性检查
-- 无系统 crontab 访问
-- 无守护进程/服务检查
-- 支持所有 crontab 语法功能
+**macOS（完整支持）：**
+- ✅ 系统 crontab 验证（`/etc/crontab`）
+- ✅ 用户 crontab 验证（通过 `crontab -l -u username`）
+- ✅ 用户存在性验证
+- ✅ 通过 launchctl 进行守护进程/服务检查
+- ✅ 所有 crontab 语法功能
+- ✅ 文件权限验证
+- ✅ cron 状态检查（`com.vix.cron` / `com.apple.cron`）
+
+**Windows（完整支持）：**
+- ✅ 基于文件的 crontab 语法验证
+- ✅ 用户存在性检查（通过 `net user`）
+- ✅ 系统 crontab 访问（`%ProgramData%\crontab`、`C:\etc\crontab`、Cygwin、MSYS2 或 `CRONTAB_SYSTEM_PATH`）
+- ✅ 通过 `sc` 进行守护进程/服务检查
+- ✅ 支持所有 crontab 语法功能
+- ✅ 通过 `icacls` 验证权限
+- ✅ 任务计划程序（`Schedule`）或已安装 cron 服务的状态检查
 
 ### 安装
 

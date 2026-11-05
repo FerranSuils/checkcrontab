@@ -16,9 +16,9 @@
 ### 요구 사항
 
 - **Python 3.7 이상**
-- **Linux**: `/etc/crontab` 파일 읽기 권한 및 systemctl이 설치된 Linux 시스템 (데몬 검사용)
-- **macOS**: `/etc/crontab` 파일 읽기 권한이 있는 Unix 시스템 (systemctl 미지원)
-- **Windows**: 추가 요구 사항 없음 (파일 기반 구문 검사만 지원)
+- **Linux**: 서비스와 cron 데몬 검사용 `systemctl`, `/etc/crontab` 읽기
+- **macOS**: launchd와 cron(`com.vix.cron`) 검사용 `launchctl`, `/etc/crontab` 읽기
+- **Windows**: 작업 스케줄러와 로컬 계정용 `sc`/`net`, ACL용 `icacls`
 
 ### 지원 플랫폼
 
@@ -31,23 +31,23 @@
 - ✅ 파일 권한 검사
 - ✅ 크론 데몬 상태 검사
 
-**macOS (부분 지원):**
+**macOS (전체 지원):**
 - ✅ 시스템 크론탭 검사 (`/etc/crontab`)
 - ✅ 사용자 크론탭 검사 (`crontab -l -u username` 사용)
 - ✅ 사용자 존재 검사
-- ❌ 데몬/서비스 상태 검사 (systemctl 미지원)
+- ✅ launchctl을 통한 데몬/서비스 상태 검사
 - ✅ 모든 크론탭 구문 기능 지원
 - ✅ 파일 권한 검사
-- ❌ 크론 데몬 상태 검사
+- ✅ 크론 데몬 상태 검사 (`com.vix.cron` / `com.apple.cron`)
 
-**Windows (제한 지원):**
+**Windows (전체 지원):**
 - ✅ 파일 기반 크론탭 구문 검사
-- ❌ 사용자 존재 검사 (사용자 관리 연동 미지원)
-- ❌ 시스템 크론탭 접근 (`/etc/crontab` 없음)
-- ❌ 데몬/서비스 상태 검사 (systemctl 미지원)
+- ✅ 사용자 존재 검사 (`net user`)
+- ✅ 시스템 크론탭 접근 (`%ProgramData%\crontab`, `C:\etc\crontab`, Cygwin, MSYS2 또는 `CRONTAB_SYSTEM_PATH`)
+- ✅ `sc`를 통한 데몬/서비스 상태 검사
 - ✅ 모든 크론탭 구문 기능 지원
-- ❌ 파일 권한 검사 (Unix 권한 체계 미지원)
-- ❌ 크론 데몬 상태 검사 (크론 데몬 없음)
+- ✅ `icacls`를 통한 파일 권한 검사
+- ✅ 작업 스케줄러(`Schedule`) 또는 설치된 cron 서비스 상태 검사
 
 ### 설치 방법
 
@@ -88,8 +88,8 @@ checkcrontab --version
 
 **플랫폼별 동작:**
 - **Linux**: 데몬 및 사용자 검사를 포함한 모든 기능 지원
-- **macOS**: 데몬 검사(systemctl 미지원)를 제외한 모든 기능 지원
-- **Windows**: 파일 기반 검사만 지원, 시스템 연동 기능 미지원
+- **macOS**: launchd와 cron 상태 검사를 포함한 모든 기능 지원
+- **Windows**: 서비스 제어 관리자, 로컬 사용자, ACL 검사를 포함한 모든 기능 지원
 
 ### TEXT 출력
 CI 환경 등에서 `STDERR` 출력을 `STDOUT`으로 리디렉션하려면 `--format text` 플래그를 사용하세요:
