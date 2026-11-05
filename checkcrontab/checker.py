@@ -10,7 +10,7 @@ import re
 import stat
 import subprocess
 import traceback
-from typing import List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +40,33 @@ HOUR_PATTERN = r"^(\*|([0-9]|1[0-9]|2[0-3])(-([0-9]|1[0-9]|2[0-3]))?(/([0-9]|1[0
 DAY_PATTERN = r"^(\*|([1-9]|[12][0-9]|3[01])(-([1-9]|[12][0-9]|3[01]))?(/([1-9]|[12][0-9]|3[01]))?(,([1-9]|[12][0-9]|3[01])(-([1-9]|[12][0-9]|3[01]))?(/([1-9]|[12][0-9]|3[01]))?)*|\*/([1-9]|[12][0-9]|3[01]))$"
 MONTH_PATTERN = r"^(\*|([1-9]|1[0-2])(-([1-9]|1[0-2]))?(/([1-9]|1[0-2]))?(,([1-9]|1[0-2])(-([1-9]|1[0-2]))?(/([1-9]|1[0-2]))?)*|\*/([1-9]|1[0-2]))$"
 WEEKDAY_PATTERN = r"^(\*|([0-7])(-([0-7]))?(/([0-7]))?(,([0-7])(-([0-7]))?)*|\*/([0-7]))$"
+MONTH_NAMES: Dict[str, str] = {
+    "jan": "1",
+    "feb": "2",
+    "mar": "3",
+    "apr": "4",
+    "may": "5",
+    "jun": "6",
+    "jul": "7",
+    "aug": "8",
+    "sep": "9",
+    "oct": "10",
+    "nov": "11",
+    "dec": "12",
+}
+WEEKDAY_NAMES: Dict[str, str] = {
+    "sun": "0",
+    "mon": "1",
+    "tue": "2",
+    "wed": "3",
+    "thu": "4",
+    "fri": "5",
+    "sat": "6",
+}
+ENV_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+USERNAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.-]{0,31}$")
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+CRON_NOT_RUNNING = "Cron daemon: is not running"
 INVALID_NAME_ALLOWED_RE = r"^[A-Za-z0-9_-]+$"
 
 
@@ -145,12 +172,10 @@ def _system_cron_directories() -> List[str]:
     return directories
 
 
-def is_system_crontab_path(file_path: str) -> bool:
-    """True when the path is a system crontab or a file under a system cron.d directory."""
+def is_installed_system_crontab(file_path: str) -> bool:
+    """True for an installed system crontab, where owner and mode are enforced."""
     if not file_path:
         return False
-    if "system" in os.path.basename(file_path).lower():
-        return True
     normalized = os.path.normcase(os.path.normpath(os.path.abspath(file_path)))
     for candidate in system_crontab_paths():
         candidate_norm = os.path.normcase(os.path.normpath(os.path.abspath(candidate)))
@@ -165,6 +190,15 @@ def is_system_crontab_path(file_path: str) -> bool:
         if parent == directory_norm:
             return True
     return False
+
+
+def is_system_crontab_path(file_path: str) -> bool:
+    """True when the path uses the system crontab field layout."""
+    if not file_path:
+        return False
+    if "system" in os.path.basename(file_path).lower():
+        return True
+    return is_installed_system_crontab(file_path)
 
 
 def user_crontab_paths(username: str) -> List[str]:
@@ -198,9 +232,8 @@ def _check_services_linux() -> List[str]:
     try:
         result = _run_command(["systemctl", "list-units", "--type=service", "--no-pager", "--no-legend"])
         if result.returncode != 0:
-            logger.warning("Daemon/service: systemctl could not list services")
-        else:
-            logger.debug("Daemon/service: systemd is reachable")
+            return ["Daemon/service: systemctl could not list services"]
+        logger.debug("Daemon/service: systemd is reachable")
     except Exception as exc:
         return _tool_errors(exc, "systemctl", "Daemon/service")
     return []
@@ -210,9 +243,8 @@ def _check_services_darwin() -> List[str]:
     try:
         result = _run_command(["launchctl", "list"])
         if result.returncode != 0:
-            logger.warning("Daemon/service: launchctl could not query launchd")
-        else:
-            logger.debug("Daemon/service: launchd is reachable")
+            return ["Daemon/service: launchctl could not query launchd"]
+        logger.debug("Daemon/service: launchd is reachable")
     except Exception as exc:
         return _tool_errors(exc, "launchctl", "Daemon/service")
     return []
@@ -222,9 +254,8 @@ def _check_services_windows() -> List[str]:
     try:
         result = _run_command(["sc", "query", "type=", "service", "state=", "all"])
         if result.returncode != 0:
-            logger.warning("Daemon/service: sc could not query the service manager")
-        else:
-            logger.debug("Daemon/service: Service Control Manager is reachable")
+            return ["Daemon/service: sc could not query the service manager"]
+        logger.debug("Daemon/service: Service Control Manager is reachable")
     except Exception as exc:
         return _tool_errors(exc, "sc", "Daemon/service")
     return []
@@ -248,15 +279,18 @@ def _linux_cron_active() -> bool:
     return False
 
 
+def _daemon_status(active: bool) -> List[str]:
+    if active:
+        logger.debug("Cron daemon: is active")
+        return []
+    return [CRON_NOT_RUNNING]
+
+
 def _check_daemon_linux() -> List[str]:
     try:
-        if _linux_cron_active():
-            logger.debug("Cron daemon: is active")
-        else:
-            logger.warning("Cron daemon: is not running")
+        return _daemon_status(_linux_cron_active())
     except Exception as exc:
         return _tool_errors(exc, "systemctl", "Cron daemon")
-    return []
 
 
 def _macos_cron_running(stdout: str) -> bool:
@@ -273,13 +307,10 @@ def _macos_cron_running(stdout: str) -> bool:
 def _check_daemon_darwin() -> List[str]:
     try:
         result = _run_command(["launchctl", "list"])
-        if result.returncode == 0 and _macos_cron_running(result.stdout):
-            logger.debug("Cron daemon: is active")
-        else:
-            logger.warning("Cron daemon: is not running")
+        active = result.returncode == 0 and _macos_cron_running(result.stdout)
+        return _daemon_status(active)
     except Exception as exc:
         return _tool_errors(exc, "launchctl", "Cron daemon")
-    return []
 
 
 def _service_is_running(name: str) -> bool:
@@ -294,13 +325,9 @@ def _check_daemon_windows() -> List[str]:
     try:
         schedule_running = _service_is_running("Schedule")
         cron_running = (not schedule_running) and any(_service_is_running(name) for name in WINDOWS_CRON_SERVICES)
-        if schedule_running or cron_running:
-            logger.debug("Cron daemon: is active")
-        else:
-            logger.warning("Cron daemon: is not running")
+        return _daemon_status(schedule_running or cron_running)
     except Exception as exc:
         return _tool_errors(exc, "sc", "Cron daemon")
-    return []
 
 
 def check_daemon() -> List[str]:
@@ -469,11 +496,10 @@ def check_dangerous_commands(command: str) -> List[str]:
     errors = []
     dangerous_patterns = [
         (r"\brm\s+-rf\s+/", "dangerous command: 'rm -rf /'"),
-        (r"\brm\s+-rf\s+/.*", "dangerous command: 'rm -rf /'"),
-        (r"\brm\s+-rf\s+/\s*$", "dangerous command: 'rm -rf /'"),
-        (r"\brm\s+-rf\s+/\s*;", "dangerous command: 'rm -rf /'"),
-        (r"\brm\s+-rf\s+/\s*&&", "dangerous command: 'rm -rf /'"),
-        (r"\brm\s+-rf\s+/\s*\|\|", "dangerous command: 'rm -rf /'"),
+        (r"\bmkfs(?:\.[a-z0-9]+)?\s+/dev/", "dangerous command: 'mkfs'"),
+        (r"\bdd\b[^\n]*\bif=/dev/(?:zero|urandom|random)\b", "dangerous command: 'dd' from a device source"),
+        (r":\(\)\s*\{\s*:\|:&\s*\};:", "dangerous command: fork bomb"),
+        (r"\bchmod\s+-R\s+777\s+/", "dangerous command: 'chmod -R 777 /'"),
     ]
 
     for pattern, message in dangerous_patterns:
@@ -528,15 +554,31 @@ def check_day_of_month(day: str) -> List[str]:
     return errors
 
 
+def canonicalize_names(value: str, names: Dict[str, str]) -> str:
+    """Replace cron month or weekday names with their numbers."""
+    if not re.search(r"[A-Za-z]", value):
+        return value
+    words = re.findall(r"[A-Za-z]+", value)
+    if any(word.lower() not in names for word in words):
+        return value
+
+    def replace(match: "re.Match[str]") -> str:
+        return names[match.group(0).lower()]
+
+    return re.sub(r"[A-Za-z]+", replace, value)
+
+
 def check_month(month: str) -> List[str]:
     """Check month field validation"""
     errors = []
+    original = month
+    month = canonicalize_names(month, MONTH_NAMES)
 
     logic_errors = validate_time_field_logic(month, "month", 1, 12)
     if logic_errors:
         errors.extend(logic_errors)
     elif not re.match(MONTH_PATTERN, month):
-        errors.append(f"invalid month format: '{month}'")
+        errors.append(f"invalid month format: '{original}'")
 
     return errors
 
@@ -544,12 +586,14 @@ def check_month(month: str) -> List[str]:
 def check_day_of_week(weekday: str) -> List[str]:
     """Check day of week field validation"""
     errors = []
+    original = weekday
+    weekday = canonicalize_names(weekday, WEEKDAY_NAMES)
 
     logic_errors = validate_time_field_logic(weekday, "day of week", 0, 7)
     if logic_errors:
         errors.extend(logic_errors)
     elif not re.match(WEEKDAY_PATTERN, weekday):
-        errors.append(f"invalid day of week format: '{weekday}'")
+        errors.append(f"invalid day of week format: '{original}'")
 
     return errors
 
@@ -602,15 +646,49 @@ def check_command(command: str) -> List[str]:
     return errors
 
 
-def check_special(keyword: str, parts: List[str], is_system_crontab: bool = False) -> List[str]:
+def parse_environment(line: str) -> Optional[Tuple[str, str]]:
+    """Return (name, value) when the line is an environment assignment."""
+    if "=" not in line:
+        return None
+    name, value = line.split("=", 1)
+    if not name or any(char.isspace() for char in name):
+        return None
+    if any(char.isdigit() or char in "*@" for char in name):
+        return None
+    return name, value
+
+
+def check_environment_assignment(name: str, value: str) -> List[str]:
+    """Validate a crontab environment assignment."""
+    errors: List[str] = []
+    if not ENV_NAME_RE.match(name):
+        errors.append(f"invalid environment variable name: '{name}'")
+        return errors
+    if any(char.isspace() for char in value):
+        errors.append(f"invalid environment variable value for {name}: '{value}'")
+        return errors
+    upper = name.upper()
+    if upper in {"SHELL", "PATH", "HOME"} and not value:
+        errors.append(f"invalid environment variable value for {name}: empty")
+    elif upper in {"SHELL", "HOME"} and not os.path.isabs(value):
+        errors.append(f"invalid environment variable value for {name}: '{value}'")
+    elif upper == "MAILTO" and value and EMAIL_RE.match(value) is None and USERNAME_RE.match(value) is None:
+        errors.append(f"invalid environment variable value for MAILTO: '{value}'")
+    elif upper in {"LOGNAME", "USER"} and USERNAME_RE.match(value) is None:
+        errors.append(f"invalid environment variable value for {name}: '{value}'")
+    return errors
+
+
+def check_special(keyword: str, parts: List[str], is_system_crontab: bool = False) -> Tuple[List[str], List[str]]:
     """Check special keyword validation"""
     errors: List[str] = []
+    warnings: List[str] = []
 
     # Validate special keyword
     valid_keywords = ["@reboot", "@yearly", "@annually", "@monthly", "@weekly", "@daily", "@midnight", "@hourly"]
     if keyword not in valid_keywords:
         errors.append(f"{keyword} {' '.join(parts)} # invalid special keyword '{keyword}'")
-        return errors
+        return errors, warnings
 
     if is_system_crontab:
         # System crontab format: @keyword user command
@@ -623,8 +701,7 @@ def check_special(keyword: str, parts: List[str], is_system_crontab: bool = Fals
             # Validate user field for system crontab
             user_errors, user_warnings = check_user(user)
             errors.extend(user_errors)
-            for warning in user_warnings:
-                logger.warning(f"{keyword} {' '.join(parts)} # {warning}")
+            warnings.extend(user_warnings)
 
             # Validate command
             command_errors = check_command(command)
@@ -638,7 +715,7 @@ def check_special(keyword: str, parts: List[str], is_system_crontab: bool = Fals
     else:
         errors.append(f"{keyword} {' '.join(parts)} # (minimum 2 required for user crontab)")
 
-    return errors
+    return errors, warnings
 
 
 def check_line(line: str, line_number: int, file_name: str, file_path: Optional[str] = None, is_system_crontab: bool = False) -> Tuple[List[str], List[str]]:
@@ -649,9 +726,13 @@ def check_line(line: str, line_number: int, file_name: str, file_path: Optional[
     errors: List[str] = []
     warnings: List[str] = []
 
-    # Skip environment variables
-    if "=" in line and not any(char.isdigit() or char in "*@" for char in line.split("=", maxsplit=1)[0]):
-        return errors, warnings
+    assignment = parse_environment(line)
+    if assignment is not None:
+        env_name, env_value = assignment
+        env_errors = check_environment_assignment(env_name, env_value)
+        content = clean_line_for_output(get_line_content(file_path, line_number) if file_path else line)
+        formatted = [f"{file_name} (Line {line_number}): {content} # {error}" for error in env_errors]
+        return formatted, warnings
 
     # Check for special keywords
     if line.startswith("@"):
@@ -670,8 +751,9 @@ def check_line(line: str, line_number: int, file_name: str, file_path: Optional[
             return formatted_errors, formatted_warnings
 
         keyword = parts[0]
-        special_errors = check_special(keyword, parts, is_system_crontab)
+        special_errors, special_warnings = check_special(keyword, parts, is_system_crontab)
         errors.extend(special_errors)
+        warnings.extend(special_warnings)
 
         # Return errors with line number and content
         formatted_errors = []

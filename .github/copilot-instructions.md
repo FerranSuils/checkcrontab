@@ -38,8 +38,8 @@ ruff format --check .
 pytest
 
 # Test CLI functionality - takes 0.05-0.08 seconds each
-python -m checkcrontab examples/system_valid.txt
-python -m checkcrontab examples/user_valid.txt
+python -m checkcrontab examples/system_valid
+python -m checkcrontab examples/user_valid
 checkcrontab --help
 checkcrontab --version
 ```
@@ -57,28 +57,28 @@ checkcrontab --version
 ### Always validate changes with these scenarios:
 1. **Basic CLI functionality:**
    ```bash
-   python -m checkcrontab examples/system_valid.txt  # Should exit 0
-   python -m checkcrontab examples/system_incorrect.txt  # Should exit 1 with errors
-   python -m checkcrontab examples/user_valid.txt  # Should exit 0
-   python -m checkcrontab examples/user_incorrect.txt  # Should exit 1 with errors
+   python -m checkcrontab examples/system_valid  # Should exit 0
+   python -m checkcrontab examples/system_incorrect  # Should exit 1 with errors
+   python -m checkcrontab examples/user_valid  # Should exit 0
+   python -m checkcrontab examples/user_incorrect  # Should exit 1 with errors
    ```
 
 2. **Debug output validation:**
    ```bash
-   python -m checkcrontab --debug examples/user_valid.txt
+   python -m checkcrontab --debug examples/user_valid
    # Should show detailed line-by-line validation info
    ```
 
 3. **Error handling validation:**
    ```bash
-   python -m checkcrontab examples/system_incorrect.txt
+   python -m checkcrontab examples/system_incorrect
    # Should show specific error messages for each invalid line
    ```
 
 4. **Module import validation:**
    ```bash
    python -c "import checkcrontab; print(checkcrontab.__version__)"
-   # Should print version number (currently 0.0.5)
+   # Should print the version from checkcrontab/__init__.py
    ```
 
 ### Always run before committing:
@@ -98,13 +98,14 @@ checkcrontab/
 │   ├── __main__.py        # CLI entry point
 │   ├── main.py           # Main application logic
 │   ├── checker.py        # Core validation logic
-│   └── logging_config.py # Colored logging configuration
+│   └── logger.py         # Colored logging configuration
 ├── examples/             # Test crontab files
-│   ├── system_valid.txt   # Valid system crontab examples
-│   ├── system_incorrect.txt  # Invalid system crontab examples
-│   ├── user_valid.txt     # Valid user crontab examples
-│   └── user_incorrect.txt    # Invalid user crontab examples
-├── test_main.py          # Test suite (35 tests)
+│   ├── system_valid
+│   ├── system_incorrect
+│   ├── user_valid
+│   ├── user_incorrect
+│   └── without_new_line
+├── tests/                # Test suite
 ├── pyproject.toml        # Package configuration
 ├── .pre-commit-config.yaml  # Pre-commit hooks
 └── README.md             # Documentation
@@ -113,14 +114,14 @@ checkcrontab/
 ### Key Files to Monitor
 - **checkcrontab/checker.py** - Core validation logic, check after making validation changes
 - **checkcrontab/main.py** - CLI interface and file processing
-- **test_main.py** - Comprehensive test suite covering all validation scenarios
+- **tests/** - Test suite covering validation scenarios
 - **examples/** - Test files used in CI and manual validation
 
 ### Development Workflow
 1. Make changes to code
 2. Run `ruff check . && mypy . && pytest` to validate
-3. Test with example files: `python -m checkcrontab examples/system_valid.txt`
-4. For new features, add tests to `test_main.py`
+3. Test with example files: `python -m checkcrontab examples/system_valid`
+4. For new features, add tests under `tests/`
 5. Update version in `checkcrontab/__init__.py` if needed
 
 ### CI Information
@@ -136,7 +137,7 @@ checkcrontab --help
 checkcrontab --version
 
 # Basic usage
-checkcrontab                        # Check system crontab (Linux only)
+checkcrontab                        # Check the installed system crontab when one exists
 checkcrontab /path/to/crontab      # Check specific file
 checkcrontab username              # Check user's crontab
 
@@ -152,7 +153,7 @@ python -m checkcrontab file.cron    # Run from source
 
 ### Package Information
 - **Entry point**: `checkcrontab.main:main`
-- **Current version**: 0.0.5 (in `checkcrontab/__init__.py`)
+- **Current version**: see `checkcrontab/__init__.py`
 - **Dependencies**: None (runtime), pytest/ruff/mypy/flake8 (development)
 - **Build system**: setuptools + pyproject.toml
 - **License**: MIT
@@ -161,7 +162,7 @@ python -m checkcrontab file.cron    # Run from source
 ✅ Cross-platform support (Linux, macOS, Windows)
 ✅ System and user crontab validation
 ✅ Time field validation (minutes, hours, days, months, weekdays)
-✅ User existence validation (Linux/macOS)
+✅ User existence validation (Linux, macOS, and Windows)
 ✅ Dangerous command detection
 ✅ Special keyword support (@reboot, @daily, etc.)
 ✅ Multi-line command support
