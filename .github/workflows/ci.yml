@@ -78,8 +78,10 @@ jobs:
     - name: CLI smoke tests
       if: matrix.python-version == '3.11'
       run: |
-        python -m checkcrontab examples/system_valid.txt
-        python -m checkcrontab examples/user_valid.txt
+        python -m checkcrontab examples/user_valid
+        python -m checkcrontab examples/system_valid
+        python -m checkcrontab examples/user_incorrect; test $? -eq 1
+        python -m checkcrontab examples/system_incorrect; test $? -eq 1
 
   test-macos:
     runs-on: macos-latest
@@ -107,8 +109,10 @@ jobs:
     - name: CLI smoke tests
       if: matrix.python-version == '3.11'
       run: |
-        python -m checkcrontab examples/system_valid.txt
-        python -m checkcrontab examples/user_valid.txt
+        python -m checkcrontab examples/user_valid
+        python -m checkcrontab examples/system_valid
+        python -m checkcrontab examples/user_incorrect; test $? -eq 1
+        python -m checkcrontab examples/system_incorrect; test $? -eq 1
 
   test-windows:
     runs-on: windows-latest
@@ -134,9 +138,12 @@ jobs:
       run: pytest
 
     - name: CLI smoke tests
+      shell: bash
       run: |
-        python -m checkcrontab examples/system_valid.txt
-        python -m checkcrontab examples/user_valid.txt
+        python -m checkcrontab examples/user_valid
+        python -m checkcrontab examples/system_valid
+        python -m checkcrontab examples/user_incorrect; test $? -eq 1
+        python -m checkcrontab examples/system_incorrect; test $? -eq 1
 
   build:
     needs:

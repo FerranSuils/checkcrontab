@@ -13,7 +13,7 @@ import re
 import sys
 import tempfile
 import traceback
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 try:
@@ -45,12 +45,127 @@ SARIF_SCHEMA = "https://json.schemastore.org/sarif-2.1.0.json"
 SARIF_VERSION = "2.1.0"
 
 
-def check_file(file_path: str, is_system_crontab: bool = False) -> Tuple[int, List[str]]:
+def _line_numbers(messages: List[str]) -> Set[int]:
+    """Line numbers mentioned in checker messages, ignoring the newline rule."""
+    numbers: Set[int] = set()
+    for message in messages:
+        if "File should end with newline" in message:
+            continue
+        match = re.search(r"Line (\d+)", message)
+        if match:
+            numbers.add(int(match.group(1)))
+    return numbers
+
+
+def inspect_files(
+    files_list: List[Tuple[str, bool]],
+    files_temp: List[str],
+    permission_paths: Set[str],
+    output_format: str,
+    scheduler_warnings: List[str],
+) -> Tuple[int, int, int, int, List[str], List[str], List[Dict[str, Any]]]:
+    """Check each requested file and return totals plus per-file records."""
+    total_rows = 0
+    total_rows_errors = 0
+    total_errors = 0
+    total_warnings = len(scheduler_warnings)
+    all_errors: List[str] = []
+    all_warnings: List[str] = list(scheduler_warnings)
+    records: List[Dict[str, Any]] = []
+
+    for path, is_system_crontab in files_list:
+        if not os.path.exists(path):
+            missing = [f"File {path} does not exist"]
+            records.append(
+                {
+                    "file": path,
+                    "is_system_crontab": is_system_crontab,
+                    "rows": 0,
+                    "rows_warnings": 0,
+                    "warnings_count": 0,
+                    "rows_errors": 0,
+                    "errors_count": 1,
+                    "errors": missing,
+                    "success": False,
+                }
+            )
+            total_errors += 1
+            all_errors.extend(missing)
+            if output_format == "text":
+                logger.error(missing[0])
+            continue
+
+        if path not in files_temp:
+            filename_error = checker.check_filename(os.path.basename(path))
+            if filename_error:
+                formatted = f"{os.path.basename(path)} (Line 0): {filename_error}"
+                records.append(
+                    {
+                        "file": path,
+                        "is_system_crontab": is_system_crontab,
+                        "rows": 0,
+                        "rows_warnings": 0,
+                        "warnings_count": 0,
+                        "rows_errors": 1,
+                        "errors_count": 1,
+                        "errors": [formatted],
+                        "success": False,
+                    }
+                )
+                all_errors.append(formatted)
+                total_errors += 1
+                if output_format == "text":
+                    logger.error(filename_error)
+                continue
+
+        file_level_errors: List[str] = []
+        enforce_permissions = os.path.abspath(path) in permission_paths or checker.is_installed_system_crontab(path)
+        if is_system_crontab and enforce_permissions:
+            for err in checker.check_owner_and_permissions(path):
+                err_msg = f"{os.path.basename(path)} (Line 0): {err}"
+                logger.error(err_msg)
+                file_level_errors.append(err_msg)
+
+        rows_checked, file_errors, file_warnings = check_file(path, is_system_crontab=is_system_crontab)
+        if file_level_errors:
+            file_errors = file_errors + file_level_errors
+
+        total_rows += rows_checked
+        total_errors += len(file_errors)
+        total_warnings += len(file_warnings)
+        all_errors.extend(file_errors)
+        all_warnings.extend(file_warnings)
+        rows_errors = len(_line_numbers(file_errors))
+        total_rows_errors += rows_errors
+        records.append(
+            {
+                "file": path,
+                "is_system_crontab": is_system_crontab,
+                "rows": rows_checked,
+                "rows_warnings": len(_line_numbers(file_warnings)),
+                "warnings_count": len(file_warnings),
+                "warnings": file_warnings,
+                "rows_errors": rows_errors,
+                "errors_count": len(file_errors),
+                "errors": file_errors,
+                "success": len(file_errors) == 0,
+            }
+        )
+        if output_format == "text" and file_errors:
+            logger.error(f"{path}: {rows_errors}/{rows_checked} lines with errors. Total {len(file_errors)} errors.")
+        elif output_format == "text":
+            logger.info(f"{path}: 0/{rows_checked} lines without errors. No errors.")
+
+    return total_rows, total_rows_errors, total_errors, total_warnings, all_errors, all_warnings, records
+
+
+def check_file(file_path: str, is_system_crontab: bool = False) -> Tuple[int, List[str], List[str]]:
     """
     Check crontab file line by line
-    Returns: (rows_checked_count, errors_list)
+    Returns: (rows_checked_count, errors_list, warnings_list)
     """
-    errors = []
+    errors: List[str] = []
+    warnings: List[str] = []
     rows_checked = 0
 
     try:
@@ -58,7 +173,7 @@ def check_file(file_path: str, is_system_crontab: bool = False) -> Tuple[int, Li
             lines = f.readlines()
     except Exception as e:
         logging.warning(f"{type(e).__name__} {str(e)}\n{traceback.format_exc()}")
-        return 0, [f"Error reading file: {e}"]
+        return 0, [f"Error reading file: {e}"], []
 
     i = 0
     while i < len(lines):
@@ -111,9 +226,9 @@ def check_file(file_path: str, is_system_crontab: bool = False) -> Tuple[int, Li
             errors.extend(line_errors)
 
         if line_warnings:
-            # Output all warnings for this line
             for warning in line_warnings:
                 logger.warning(warning)
+            warnings.extend(line_warnings)
         if logger.isEnabledFor(logging.DEBUG) and not line_errors and not line_warnings:
             # Output valid lines in debug mode
             logger.debug(f"{os.path.basename(file_path)} (Line {line_number}): {line_content} # valid")
@@ -124,7 +239,7 @@ def check_file(file_path: str, is_system_crontab: bool = False) -> Tuple[int, Li
         errors.append(error_msg)
         logger.error(error_msg)
 
-    return rows_checked, errors
+    return rows_checked, errors, warnings
 
 
 def find_user_crontab(username: str) -> Optional[str]:
@@ -247,6 +362,7 @@ Usage examples:
     # Prepare list of files to check with their types
     files_list: List[Tuple[str, bool]] = []  # (file_path, is_system_crontab)
     files_temp: List[str] = []  # Track temporary files for cleanup
+    permission_paths: Set[str] = set()
 
     # Add files with explicit flags
     if args.system:
@@ -257,8 +373,10 @@ Usage examples:
                     logger.warning(warning)
                 for file in files:
                     files_list.append((file, True))
+                    permission_paths.add(os.path.abspath(file))
             else:
                 files_list.append((path, True))
+                permission_paths.add(os.path.abspath(path))
 
     if args.user:
         for path in args.user:
@@ -306,11 +424,11 @@ Usage examples:
     # Service manager and scheduler status on Linux, macOS, and Windows.
     # Skipped in GitHub Actions, where those managers are not the thing under test.
     logger.debug(f"Platform: {platform.system()}")
+    scheduler_warnings: List[str] = []
     if os.getenv("GITHUB_ACTIONS") != "true":
-        for w in checker.check_services():
-            logger.warning(w)
-        for w in checker.check_daemon():
-            logger.warning(w)
+        for warning in checker.check_services() + checker.check_daemon():
+            logger.warning(warning)
+            scheduler_warnings.append(warning)
 
     no_targets = not args.system and not args.user and not args.username and not args.arguments
     if no_targets and not files_list:
@@ -331,116 +449,21 @@ Usage examples:
             unique_file_list.append((path, is_system))
     files_list = unique_file_list
 
-    total_rows = 0
-    total_rows_errors = 0
-    total_errors = 0
-    total_warnings = 0
-    all_errors: List[str] = []
-    # all_warnings: List[str] = []
-
-    # Prepare output structure if needed
-    output_data: Dict[str, Any] = {"success": True, "total_files": len(files_list), "total_rows": 0, "total_rows_errors": 0, "total_errors": 0, "total_warnings": 0, "files": []}
-
-    for path, is_system_crontab in files_list:
-        if os.path.exists(path):
-            if path not in files_temp:
-                base = os.path.basename(path)
-                error = checker.check_filename(base)
-                if error:
-                    msg = error
-                    file_info = {
-                        "file": path,
-                        "is_system_crontab": is_system_crontab,
-                        "rows": 0,
-                        "rows_warnings": 0,
-                        "warnings_count": 0,
-                        "rows_errors": 1,
-                        "errors_count": 1,
-                        "errors": [f"{os.path.basename(path)} (Line 0): {msg}"],
-                        "success": False,
-                    }
-                    output_data["files"].append(file_info)
-                    all_errors.append(f"{os.path.basename(path)} (Line 0): {msg}")
-                    total_errors += 1
-                    if args.format == "text":
-                        logger.error(msg)
-                    continue
-            file_level_errors: List[str] = []
-            if is_system_crontab:
-                errors = checker.check_owner_and_permissions(path)
-                for err in errors:
-                    err_msg = f"{os.path.basename(path)} (Line 0): {err}"
-                    logger.error(err_msg)
-                    file_level_errors.append(err_msg)
-
-            rows_checked, file_errors = check_file(path, is_system_crontab=is_system_crontab)
-
-            if file_level_errors:
-                file_errors = file_errors + file_level_errors
-
-            total_rows += rows_checked
-            total_errors += len(file_errors)
-            all_errors.extend(file_errors)
-            # Note: warnings are logged directly in check_file, so we don't need to track them here
-            unique_error_lines = set()
-            for error in file_errors:
-                if "File should end with newline" in error:
-                    continue
-                match = re.search(r"Line (\d+)", error)
-                if match:
-                    unique_error_lines.add(int(match.group(1)))
-            rows_errors = len(unique_error_lines)
-            total_rows_errors += rows_errors
-            # Add file info to output structure
-            file_info = {
-                "file": path,
-                "is_system_crontab": is_system_crontab,
-                "rows": rows_checked,
-                "rows_warnings": 0,
-                "warnings_count": 0,
-                "rows_errors": rows_errors,
-                "errors_count": len(file_errors),
-                "errors": file_errors,
-                "success": len(file_errors) == 0,
-            }
-            output_data["files"].append(file_info)
-            # Standard output
-            if args.format == "text" and len(file_errors) > 0:
-                logger.error(f"{path}: {rows_errors}/{rows_checked} lines with errors. Total {len(file_errors)} errors.")
-            elif args.format == "text":
-                logger.info(f"{path}: 0/{rows_checked} lines without errors. No errors.")
-        else:
-            file_info = {
-                "file": path,
-                "is_system_crontab": is_system_crontab,
-                "rows": 0,
-                "rows_warnings": 0,
-                "warnings_count": 0,
-                "rows_errors": 0,
-                "errors_count": 1,
-                "errors": [f"File {path} does not exist"],
-                "success": False,
-            }
-            output_data["files"].append(file_info)
-            if args.format == "text":
-                logger.warning(f"File {path} does not exist")
-
-    # Update output structure and generate final output
-    output_data["total_rows"] = total_rows
-    output_data["total_rows_errors"] = total_rows_errors
-    output_data["total_errors"] = total_errors
-    output_data["total_warnings"] = total_warnings
-    output_data["success"] = total_errors == 0
-
-    # Calculate unique error lines
-    unique_error_lines = set()
-    for error in all_errors:
-        if "File should end with newline" in error:
-            continue
-        match = re.search(r"Line (\d+)", error)
-        if match:
-            unique_error_lines.add(int(match.group(1)))
-    output_data["rows_errors"] = len(unique_error_lines)
+    total_rows, total_rows_errors, total_errors, total_warnings, all_errors, all_warnings, records = inspect_files(
+        files_list, files_temp, permission_paths, args.format, scheduler_warnings
+    )
+    strict_failed = args.strict and total_warnings > 0
+    output_data: Dict[str, Any] = {
+        "success": total_errors == 0 and not strict_failed,
+        "total_files": len(files_list),
+        "total_rows": total_rows,
+        "total_rows_errors": total_rows_errors,
+        "total_errors": total_errors,
+        "total_warnings": total_warnings,
+        "warnings": all_warnings,
+        "rows_errors": len(_line_numbers(all_errors)),
+        "files": records,
+    }
 
     # Generate output based on format
     if args.format == "json":
@@ -449,18 +472,15 @@ Usage examples:
         sarif_output = gen_sarif_output(output_data["files"], total_errors)
         print(json.dumps(sarif_output, indent=2))
     # Standard output
+    elif total_errors == 0 and not strict_failed:
+        if total_warnings:
+            logger.info(f"All checks passed with {total_warnings} warnings.")
+        else:
+            logger.info("All checks passed successfully!")
     elif total_errors == 0:
-        logger.info("All checks passed successfully!")
+        logger.error(f"Total: {total_warnings} warnings treated as errors")
     else:
-        unique_error_lines = set()
-        for error in all_errors:
-            if "File should end with newline" in error:
-                continue
-            match = re.search(r"Line (\d+)", error)
-            if match:
-                unique_error_lines.add(int(match.group(1)))
-        rows_errors = len(unique_error_lines)
-        logger.error(f"Total: {rows_errors} lines with errors found in {total_rows} checked lines")
+        logger.error(f"Total: {len(_line_numbers(all_errors))} lines with errors found in {total_rows} checked lines")
 
     # Clean up temporary files
     for temp_file in files_temp:
@@ -474,9 +494,7 @@ Usage examples:
         return 0
 
     # Count warnings if in strict mode
-    total_issues = total_errors
-    if args.strict:
-        total_issues += total_warnings
+    total_issues = total_errors + total_warnings if args.strict else total_errors
 
     if total_issues == 0:
         return 0

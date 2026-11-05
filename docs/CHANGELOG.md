@@ -1,5 +1,14 @@
 # CHANGELOG
 
+0.0.14 (2026-11-05)
+========
+- Count warnings and honor `--strict`
+- Count a missing explicit crontab file as an error
+- Validate environment assignments
+- Accept month and weekday names
+- Flag mkfs, dd, fork bombs, and `chmod -R 777 /`
+- Point CI smoke tests at the real example files
+
 0.0.13 (2026-11-05)
 ========
 - macOS: service checks and cron status via launchctl

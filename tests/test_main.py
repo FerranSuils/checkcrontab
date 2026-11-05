@@ -88,7 +88,7 @@ def test_valid_user_crontab_line_with_special_keyword():
 
 
 def test_environment_variable_skipped():
-    """Test that environment variables are skipped"""
+    """Test that a valid environment assignment is accepted"""
     line = "MAILTO=user@example.com"
     errors, warnings = checker.check_line(line, 1, "test.txt", is_system_crontab=False)
     assert errors == []
@@ -375,7 +375,7 @@ def run_main_with_args(args):
 @patch("checkcrontab.main.os.getenv", return_value="false")
 @patch("checkcrontab.main.os.path.exists")
 def test_auto_adds_system_crontab(mock_exists, mock_env, mock_platform, monkeypatch):
-    # /etc/crontab should be auto-added when no args and on Linux (not GitHub)
+    # No system crontab is added when the file is not on disk.
     # Mock existence - /etc/crontab doesn't exist initially (for permissions check)
     # but will be created when needed for reading
     def exists_side_effect(path):
@@ -427,7 +427,7 @@ def test_duplicate_files_processed_once(mock_exists, mock_env, mock_platform, tm
 
     def fake_check_file(path, is_system_crontab=False):  # pragma: no cover - simple shim
         calls.append((path, is_system_crontab))
-        return 1, []
+        return 1, [], []
 
     with patch("checkcrontab.main.check_file", side_effect=fake_check_file):
         code = run_main_with_args([str(f), str(f), str(f)])
@@ -469,7 +469,7 @@ def test_username_resolution(mock_exists, mock_getenv, mock_platform, monkeypatc
 @patch("checkcrontab.main.os.path.exists", return_value=True)
 @patch("checkcrontab.main.os.getenv", return_value="true")
 def test_non_linux_skips_system(mock_env, mock_exists, mock_platform, tmp_path):
-    # On non-Linux system system crontab insertion is skipped
+    # A user file is checked on Windows without requiring /etc/crontab.
     f = tmp_path / "user_cron"
     f.write_text("0 4 * * * echo hi\n")
     code = run_main_with_args([str(f)])
@@ -538,13 +538,12 @@ def test_json_explicit_missing_files(mock_exists, mock_env, mock_platform, capsy
         code = check_crontab.main()
     out = capsys.readouterr().out
     data = json.loads(out)
-    # Current behavior: missing files recorded but not counted toward total_errors (possible improvement)
-    assert code == 0
+    assert code == 1
     if data["total_files"] != 2:
         print(data)
     assert data["total_files"] == 2
-    assert data["total_errors"] == 0  # because total_errors only increments for existing files
-    assert data["success"] is True
+    assert data["total_errors"] == 2
+    assert data["success"] is False
     file_paths = {f["file"] for f in data["files"]}
     assert "/tmp/miss_system_cron" in file_paths and "/tmp/miss_user_cron" in file_paths
     for f in data["files"]:
@@ -869,14 +868,13 @@ def test_sarif_multiple_files(mock_perm, mock_daemon, mock_env, mock_platform, t
 @patch("checkcrontab.checker.check_owner_and_permissions")
 def test_strict_mode_with_warnings(mock_perm, mock_daemon, mock_exists, mock_env, mock_platform, tmp_path, capsys):
     """Test that --strict flag treats warnings as errors for exit code"""
-    # Create a file that might generate warnings (we'd need to know what generates warnings)
-    # For now, test with a valid file to ensure strict mode doesn't break normal operation
     f = tmp_path / "test_cron"
-    f.write_text("0 1 * * * root echo test\n")
-    code = run_main(["--strict", "--format", "json", str(f)])
-    assert code == 0  # No warnings or errors
+    f.write_text("0 1 * * * nosuchuser123 /bin/true\n")
+    code = run_main(["--strict", "--format", "json", "-S", str(f)])
     data = json.loads(capsys.readouterr().out)
-    assert data["success"] is True
+    assert data["total_warnings"] >= 1
+    assert data["success"] is False
+    assert code == 1
 
 
 @patch("checkcrontab.main.platform.system", return_value="Linux")
@@ -1215,7 +1213,7 @@ def test_check_file_read_error(mock_exists, mock_env, mock_platform, tmp_path):
         raise PermissionError("Permission denied")
 
     with patch("checkcrontab.main.open", side_effect=mock_open_error):
-        rows, errors = check_crontab.check_file(str(f))
+        rows, errors, _warnings = check_crontab.check_file(str(f))
         assert rows == 0
         assert len(errors) == 1
         assert "Error reading file" in errors[0]
@@ -1321,7 +1319,7 @@ def test_check_file_multiline_continuation_with_backslash(mock_exists, mock_env,
     && echo line3
 """
     f.write_text(content)
-    rows, errors = check_crontab.check_file(str(f), is_system_crontab=True)
+    rows, errors, _warnings = check_crontab.check_file(str(f), is_system_crontab=True)
     assert rows == 1  # Should count as 1 line
     assert errors == []
 
@@ -1338,7 +1336,7 @@ def test_check_file_skip_empty_continuation_lines(mock_exists, mock_env, mock_pl
 # Comment after continuation
 """
     f.write_text(content)
-    rows, errors = check_crontab.check_file(str(f), is_system_crontab=True)
+    rows, errors, _warnings = check_crontab.check_file(str(f), is_system_crontab=True)
     assert rows == 1
 
 
